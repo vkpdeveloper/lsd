@@ -7,9 +7,8 @@
 //! The installer puts Leaf in ~/.local/bin, which is not always on PATH, so
 //! the usual install folders are searched too.
 
-use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus};
+use std::process::{Command, Stdio};
 
 use crate::entry::Entry;
 
@@ -56,12 +55,29 @@ fn is_executable(path: &Path) -> bool {
 }
 
 /// Runs `leaf open <path>` in this terminal and waits for it to quit. The
-/// caller must have given up the terminal first: no raw mode, main screen,
-/// and nothing else reading input, or Leaf's own terminal queries go astray.
-/// Leaf clears every kitty image when it quits, so pictures must be sent
-/// again afterwards.
-pub fn open(leaf: &Path, path: &Path) -> io::Result<ExitStatus> {
-    Command::new(leaf).arg("open").arg(path).status()
+/// caller must have given up the terminal first: no raw mode, and nothing
+/// else reading input, or Leaf's own terminal queries go astray. Leaf clears
+/// every kitty image when it quits, so pictures must be sent again afterwards.
+///
+/// Leaf draws on stdout; its stderr is kept so a failure can be shown in lsd
+/// instead of vanishing when lsd redraws.
+pub fn open(leaf: &Path, path: &Path) -> Result<(), String> {
+    let output = Command::new(leaf)
+        .arg("open")
+        .arg(path)
+        .stderr(Stdio::piped())
+        .spawn()
+        .and_then(|child| child.wait_with_output())
+        .map_err(|err| err.to_string())?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let reason = stderr.lines().map(str::trim).find(|l| !l.is_empty());
+    Err(reason.map_or_else(
+        || output.status.to_string(),
+        |l| l.strip_prefix("leaf: ").unwrap_or(l).to_string(),
+    ))
 }
 
 #[cfg(test)]

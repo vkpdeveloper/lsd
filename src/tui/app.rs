@@ -12,8 +12,8 @@ use ratatui::layout::Rect;
 
 use super::work::{self, Done, Listing, Msg};
 use crate::entry::{self, Entry, Sort, SortKey};
-use crate::fsops;
 use crate::places::{self, Place};
+use crate::{fsops, leaf};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum View {
@@ -126,6 +126,8 @@ pub struct App {
     pub osc: Vec<u8>,
     /// Hold drawing until this instant while the current folder loads.
     pub defer: Option<Instant>,
+    /// A document to hand to Leaf (the reader, then the file) before the next frame.
+    pub read: Option<(PathBuf, PathBuf)>,
     pub quit: bool,
     tx: Sender<Msg>,
 }
@@ -175,6 +177,7 @@ impl App {
             page: 1,
             osc: Vec::new(),
             defer: None,
+            read: None,
             quit: false,
             tx,
         };
@@ -511,12 +514,19 @@ impl App {
 
     // Actions
 
-    /// Opens a folder in place, anything else (apps too) with its default app.
+    /// Opens a folder in place, documents in Leaf, anything else (apps too)
+    /// with its default app.
     pub fn open(&mut self) {
         let Some(e) = self.current() else { return };
         let (path, name) = (e.path.clone(), e.name.clone());
         if e.is_dir && !name.ends_with(".app") {
             self.go(path);
+            return;
+        }
+        if leaf::reads(e)
+            && let Some(reader) = leaf::command()
+        {
+            self.read = Some((reader, path));
             return;
         }
         if let Err(err) = fsops::open(&path) {

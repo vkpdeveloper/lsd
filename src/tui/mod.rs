@@ -13,8 +13,11 @@ mod views;
 mod work;
 
 use std::io::{self, BufWriter, Stdout, Write};
-use std::path::PathBuf;
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::thread::Thread;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
@@ -29,6 +32,7 @@ use ratatui::layout::Rect;
 
 use crate::entry::Sort;
 use crate::glyph::Icons;
+use crate::leaf;
 use crate::term::Term;
 use app::App;
 use pics::Pics;
@@ -62,19 +66,13 @@ pub fn run(term: &Term, opts: Options) -> anyhow::Result<()> {
     let (tx, rx) = mpsc::channel();
     let app = App::new(dir, select, opts.sort, opts.show_hidden, tx.clone());
     let load = Loader::new(&tx);
-    let input_tx = tx.clone();
-    std::thread::spawn(move || {
-        while let Ok(ev) = event::read() {
-            if input_tx.send(Msg::Input(ev)).is_err() {
-                break;
-            }
-        }
-    });
+    let input = Input::spawn(tx.clone());
 
     let mut terminal = setup()?;
     let mut tui = Tui {
         app,
         load,
+        input,
         pics: Pics::new(term),
         theme,
         icons: Icons::resolve(None),
@@ -121,9 +119,68 @@ fn restore(terminal: &mut Terminal<Backend>, cleanup: &[u8]) {
     let _ = disable_raw_mode();
 }
 
+/// Reads terminal input on its own thread. It pauses while another program
+/// (Leaf) has the terminal, so that program gets every byte, including the
+/// replies to its own terminal queries.
+struct Input {
+    paused: Arc<AtomicBool>,
+    parked: Receiver<()>,
+    thread: Thread,
+}
+
+/// How long the reader waits for input before checking for a pause: the
+/// longest a document waits before Leaf starts.
+const INPUT_POLL: Duration = Duration::from_millis(50);
+
+impl Input {
+    fn spawn(tx: Sender<Msg>) -> Input {
+        let paused = Arc::new(AtomicBool::new(false));
+        let (parked_tx, parked) = mpsc::channel();
+        let flag = paused.clone();
+        let handle = std::thread::spawn(move || {
+            loop {
+                if flag.load(Ordering::Acquire) {
+                    let _ = parked_tx.send(());
+                    while flag.load(Ordering::Acquire) {
+                        std::thread::park();
+                    }
+                    continue;
+                }
+                match event::poll(INPUT_POLL) {
+                    Ok(false) => {}
+                    Ok(true) => {
+                        let Ok(ev) = event::read() else { break };
+                        if tx.send(Msg::Input(ev)).is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+        Input {
+            paused,
+            parked,
+            thread: handle.thread().clone(),
+        }
+    }
+
+    /// Returns once the reader has stopped reading.
+    fn pause(&self) {
+        self.paused.store(true, Ordering::Release);
+        let _ = self.parked.recv();
+    }
+
+    fn resume(&self) {
+        self.paused.store(false, Ordering::Release);
+        self.thread.unpark();
+    }
+}
+
 struct Tui {
     app: App,
     load: Loader,
+    input: Input,
     pics: Pics,
     theme: Theme,
     icons: Icons,
@@ -158,6 +215,10 @@ impl Tui {
             if self.app.quit {
                 break;
             }
+            if let Some((reader, path)) = self.app.read.take() {
+                self.read(terminal, &reader, &path)?;
+                dirty = true;
+            }
             let now = Instant::now();
             if now >= next_tick {
                 dirty |= self.app.tick();
@@ -170,6 +231,39 @@ impl Tui {
                 self.draw(terminal)?;
                 dirty = false;
             }
+        }
+        Ok(())
+    }
+
+    /// Hands the terminal to Leaf until it quits, then takes it back. lsd stays
+    /// on the alternate screen, so the shell never flashes in between. The
+    /// screen is cleared first: Leaf only draws the cells it fills, so anything
+    /// left over would show through its pages.
+    fn read(
+        &mut self,
+        terminal: &mut Terminal<Backend>,
+        reader: &Path,
+        path: &Path,
+    ) -> io::Result<()> {
+        self.input.pause();
+        terminal.clear()?;
+        execute!(terminal.backend_mut(), DisableMouseCapture, cursor::Show)?;
+        disable_raw_mode()?;
+        let result = leaf::open(reader, path);
+        enable_raw_mode()?;
+        execute!(
+            terminal.backend_mut(),
+            EnterAlternateScreen,
+            EnableMouseCapture,
+            cursor::Hide
+        )?;
+        terminal.clear()?;
+        self.pics.forget();
+        self.input.resume();
+        if let Err(reason) = result {
+            let name = path.file_name().unwrap_or_default().to_string_lossy();
+            self.app
+                .fail(format!("Leaf could not open “{name}”: {reason}"));
         }
         Ok(())
     }

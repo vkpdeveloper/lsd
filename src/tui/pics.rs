@@ -259,6 +259,13 @@ impl Pics {
         out
     }
 
+    /// Another program cleared the terminal's images (Leaf deletes every kitty
+    /// image when it quits), so each one is sent again when next shown.
+    pub fn forget(&mut self) {
+        self.sent.clear();
+        self.shown.clear();
+    }
+
     /// Frees every kitty image we sent.
     pub fn cleanup(&mut self) -> Vec<u8> {
         let mut out = Vec::new();

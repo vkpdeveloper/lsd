@@ -78,7 +78,8 @@ mod freedesktop {
 
     use super::super::{first_free, numbered, percent_encode, rename_noreplace, split_name};
 
-    /// $XDG_DATA_HOME, or ~/.local/share.
+    /// $XDG_DATA_HOME, or ~/.local/share. Tests pass their own folder.
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     pub fn data_home() -> io::Result<PathBuf> {
         if let Some(dir) = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from)
             && dir.is_absolute()

@@ -25,6 +25,13 @@ two-face = { version = "0.5", default-features = false, features = ["syntect-oni
 unicode-width = "0.2"
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
+# The freedesktop thumbnail cache names files by the MD5 of their URI.
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+md5 = "0.8"
+
+[dev-dependencies]
+md5 = "0.8"
+
 [profile.release]
 lto = "fat"
 codegen-units = 1

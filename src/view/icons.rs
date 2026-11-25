@@ -2,19 +2,20 @@
 //!
 //! Thumbnails are generated in parallel and each grid row is printed as soon as
 //! all of its tiles are ready, so the first row shows up without waiting for the
-//! whole directory.
+//! whole folder.
 
 use std::io::{self, Write};
 
-use super::{Ctx, Placed, Placer, linked, write_all};
+use super::{Ctx, Painter, Pic, end_line, linked};
 use crate::entry::Entry;
 use crate::fmt;
 use crate::thumb::{Mode, Thumb};
 
 pub fn render(ctx: &Ctx, entries: &[Entry], out: &mut impl Write) -> io::Result<()> {
-    let Some(g) = ctx.term.graphics else {
-        return super::plain::columns(ctx.term, entries, out);
-    };
+    if !ctx.term.protocol.has_images() {
+        // A grid of tiny half-block mosaics reads worse than clean columns.
+        return super::plain::columns(ctx, entries, out);
+    }
     if entries.is_empty() {
         return Ok(());
     }
@@ -24,12 +25,13 @@ pub fn render(ctx: &Ctx, entries: &[Entry], out: &mut impl Write) -> io::Result<
     let label_w = tile - 2;
     let per_row = (ctx.term.cols as usize / tile).max(1);
 
-    let px = ctx.px_for((box_cols, box_rows));
-    let rx = ctx.thumbs.batch(entries, px, Mode::Icon);
+    let rx = ctx
+        .thumbs
+        .batch(entries, ctx.px_for((box_cols, box_rows)), Mode::Icon);
     let mut thumbs: Vec<Option<Option<Thumb>>> = vec![None; entries.len()];
-    let mut placer = Placer::new(g, ctx.term.cell);
+    let mut painter = Painter::new(ctx.term);
 
-    write_all(out, b"\n")?;
+    out.write_all(b"\n")?;
     for (row_idx, row) in entries.chunks(per_row).enumerate() {
         let start = row_idx * per_row;
         let range = start..start + row.len();
@@ -40,38 +42,42 @@ pub fn render(ctx: &Ctx, entries: &[Entry], out: &mut impl Write) -> io::Result<
                 Err(_) => break,
             }
         }
-
-        let mut buf = Vec::new();
-        let placed: Vec<Option<Placed>> = thumbs[range]
+        let pics: Vec<Option<Pic>> = thumbs[range]
             .iter()
             .map(|t| {
                 t.as_ref()
                     .and_then(Option::as_ref)
-                    .and_then(|t| placer.place(&mut buf, t, (box_cols, box_rows)))
+                    .and_then(|t| painter.prepare(t, (box_cols, box_rows)))
             })
             .collect();
 
         let mut text = String::new();
         for line in 0..box_rows {
-            for (entry, p) in row.iter().zip(&placed) {
-                let Some(p) = *p else {
+            for (col, (entry, pic)) in row.iter().zip(&pics).enumerate() {
+                let Some(pic) = pic else {
                     text.push_str(&" ".repeat(tile));
                     continue;
                 };
-                // Center horizontally and vertically inside the box.
-                let top = (box_rows - p.rows) / 2;
-                let left = (tile - p.cols as usize) / 2;
-                if line < top || line >= top + p.rows {
+                // Center inside the box, both ways.
+                let top = (box_rows - pic.rows) / 2;
+                let left = (tile - pic.cols as usize) / 2;
+                if line < top || line >= top + pic.rows {
                     text.push_str(&" ".repeat(tile));
                     continue;
                 }
                 text.push_str(&" ".repeat(left));
                 let mut cells = String::new();
-                placer.push_row(&mut cells, p, line - top);
+                painter.push_row(
+                    &mut cells,
+                    pic,
+                    line - top,
+                    (col * tile + left) as u16,
+                    line,
+                );
                 linked(&mut text, entry, &cells);
-                text.push_str(&" ".repeat(tile - left - p.cols as usize));
+                text.push_str(&" ".repeat(tile - left - pic.cols as usize));
             }
-            trim_line(&mut text);
+            end_line(&mut text);
         }
 
         let labels: Vec<Vec<String>> = row
@@ -83,25 +89,19 @@ pub fn render(ctx: &Ctx, entries: &[Entry], out: &mut impl Write) -> io::Result<
             for (entry, lines) in row.iter().zip(&labels) {
                 let s = lines.get(line).map(String::as_str).unwrap_or("");
                 let w = fmt::width(s);
-                let left = (tile.saturating_sub(w)) / 2;
+                let left = tile.saturating_sub(w) / 2;
                 text.push_str(&" ".repeat(left));
                 linked(&mut text, entry, s);
                 text.push_str(&" ".repeat(tile.saturating_sub(left + w)));
             }
-            trim_line(&mut text);
+            end_line(&mut text);
         }
+        let mut height = box_rows + label_rows as u16;
         if start + row.len() < entries.len() {
             text.push('\n');
+            height += 1;
         }
-        buf.extend_from_slice(text.as_bytes());
-        write_all(out, &buf)?;
+        painter.flush(out, &text, height)?;
     }
     Ok(())
-}
-
-/// Ends the current output line, dropping trailing padding.
-fn trim_line(text: &mut String) {
-    let trimmed = text.trim_end_matches(' ').len();
-    text.truncate(trimmed);
-    text.push('\n');
 }

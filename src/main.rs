@@ -2,6 +2,9 @@ mod diacritics;
 mod entry;
 mod fmt;
 mod fsops;
+mod glyph;
+mod halfblock;
+mod iterm;
 mod kitty;
 mod meta;
 mod places;
@@ -17,6 +20,7 @@ use std::process::ExitCode;
 use clap::Parser;
 
 use entry::{Entry, Sort, SortKey};
+use glyph::Icons;
 use term::Term;
 use thumb::Thumbnailer;
 use view::{Ctx, IconSize};
@@ -71,6 +75,10 @@ struct Cli {
     /// Icon size.
     #[arg(short, long, value_enum, default_value_t)]
     size: IconSize,
+
+    /// Text icons for terminals without images [default: emoji, or $LSD_ICONS].
+    #[arg(long, value_enum)]
+    icons: Option<Icons>,
 
     /// With -i: write the final folder to this file on quit (for a `cd` wrapper).
     #[arg(long, value_name = "FILE")]
@@ -176,6 +184,7 @@ fn list(cli: &Cli, term: &Term) -> io::Result<bool> {
         term,
         thumbs: Thumbnailer::new(),
         size: cli.size,
+        icons: Icons::resolve(cli.icons),
     };
     let stdout = io::stdout();
     let mut out = io::BufWriter::new(stdout.lock());

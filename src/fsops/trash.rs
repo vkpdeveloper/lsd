@@ -3,25 +3,59 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-/// Moves `path` to the Trash and returns where it ended up.
+/// Moves `path` to the Trash and returns where it ended up. Goes through
+/// NSFileManager, like Finder, so Put Back works. Foundation is loaded here,
+/// not linked, so runs that trash nothing don't pay for it.
 #[cfg(target_os = "macos")]
 pub fn trash_item(path: &Path) -> io::Result<PathBuf> {
-    use objc2_foundation::{NSFileManager, NSURL};
+    use std::ffi::{CStr, c_char};
+    use std::os::unix::ffi::OsStrExt;
+    use std::ptr::null_mut;
+
+    use crate::thumb::objc::{self, Id, Pool, msg};
 
     let path = std::path::absolute(path)?;
     // For a proper NotFound instead of a Foundation message.
-    std::fs::symlink_metadata(&path)?;
-    objc2::rc::autoreleasepool(|_| {
-        let url = NSURL::from_file_path(&path)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Not a valid path."))?;
-        let mut trashed = None;
-        NSFileManager::defaultManager()
-            .trashItemAtURL_resultingItemURL_error(&url, Some(&mut trashed))
-            .map_err(|err| io::Error::other(err.localizedDescription().to_string()))?;
-        trashed
-            .and_then(|url| url.to_file_path())
-            .ok_or_else(|| io::Error::other("The Trash did not say where the item went."))
-    })
+    let meta = std::fs::symlink_metadata(&path)?;
+    if objc::dlopen(c"/System/Library/Frameworks/Foundation.framework/Foundation").is_null() {
+        return Err(io::Error::other("Foundation could not be loaded."));
+    }
+    let _pool = Pool::new();
+    // SAFETY: Foundation is loaded, and every message matches its documented
+    // signature. Results are autoreleased and drained with the pool.
+    unsafe {
+        let url = objc::file_url(&path, meta.is_dir());
+        if url.is_null() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Not a valid path.",
+            ));
+        }
+        let manager = msg!(objc::class(c"NSFileManager"), c"defaultManager"; Id);
+        let mut trashed: Id = null_mut();
+        let mut error: Id = null_mut();
+        let ok = msg!(manager, c"trashItemAtURL:resultingItemURL:error:",
+            url => Id, &mut trashed => *mut Id, &mut error => *mut Id; bool);
+        if !ok {
+            let message = objc::string(msg!(error, c"localizedDescription"; Id));
+            return Err(io::Error::other(
+                message.unwrap_or_else(|| "Couldn't move it to the Trash.".into()),
+            ));
+        }
+        let repr = if trashed.is_null() {
+            std::ptr::null()
+        } else {
+            msg!(trashed, c"fileSystemRepresentation"; *const c_char)
+        };
+        if repr.is_null() {
+            return Err(io::Error::other(
+                "The Trash did not say where the item went.",
+            ));
+        }
+        Ok(PathBuf::from(std::ffi::OsStr::from_bytes(
+            CStr::from_ptr(repr).to_bytes(),
+        )))
+    }
 }
 
 /// Moves `path` to the Trash and returns where it ended up.

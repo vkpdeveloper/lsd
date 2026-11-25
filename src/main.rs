@@ -216,7 +216,7 @@ fn list(cli: &Cli, term: &Term) -> io::Result<bool> {
         out.flush()?;
         return Ok(ok);
     }
-    // `lsd notes.md` shows the document itself, like Quick Look. Other files,
+    // `lsd data.json` shows the file itself, like Quick Look. Other files,
     // or any file with -g, show their card: a bigger picture with details.
     if single_file && ctx.term.tty && !(cli.list || cli.one || cli.tree) {
         if cli.gallery || !view::quicklook::render(&ctx, &files[0], &mut out)? {

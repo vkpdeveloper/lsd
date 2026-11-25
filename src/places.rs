@@ -12,6 +12,8 @@ pub enum PlaceKind {
     Desktop,
     Documents,
     Downloads,
+    /// macOS only: Linux has no one folder of apps.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     Applications,
     Pictures,
     Music,

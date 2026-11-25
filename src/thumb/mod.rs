@@ -607,7 +607,6 @@ mod tests {
             size: 1000,
             modified: Some(SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000)),
             created: None,
-            accessed: None,
             mode: 0o644,
         }
     }

@@ -69,12 +69,6 @@ impl Graphics {
         Ok(())
     }
 
-    /// Like [`Graphics::transmit`] but for PNG bytes already in memory.
-    pub fn transmit_bytes(&self, out: &mut Vec<u8>, id: u32, png: &[u8], cols: u16, rows: u16) {
-        let head = format!("a=T,U=1,f=100,q=2,i={id},c={cols},r={rows}");
-        self.chunked(out, &head, &B64.encode(png));
-    }
-
     /// Frees the image and every placement of it in the terminal.
     pub fn delete(&self, out: &mut Vec<u8>, id: u32) {
         self.apc(out, &format!("a=d,d=I,q=2,i={id}"), "");
@@ -157,12 +151,6 @@ impl Graphics {
 
 /// One placeholder cell: `U+10EEEE` + row + column + high id byte. Always fully
 /// specified so partial redraws (as in a TUI diff) stay correct.
-pub fn cell(row: u16, col: u16, id: u32) -> String {
-    let mut s = String::with_capacity(16);
-    push_cell(&mut s, row, col, id);
-    s
-}
-
 pub fn push_cell(s: &mut String, row: u16, col: u16, id: u32) {
     s.push(PLACEHOLDER);
     s.push(DIACRITICS[row as usize]);

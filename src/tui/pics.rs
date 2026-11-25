@@ -287,7 +287,9 @@ mod tests {
         for key in 0..200 {
             let id = g.image_id(key);
             for (r, c) in [(0, 0), (3, 7), (40, 120), (296, 296)] {
-                assert_eq!(kitty::cell(r, c, id).as_str().cell_width(), 1);
+                let mut cell = String::new();
+                kitty::push_cell(&mut cell, r, c, id);
+                assert_eq!(cell.as_str().cell_width(), 1);
             }
         }
     }

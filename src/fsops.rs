@@ -1,9 +1,6 @@
 //! File operations used by the browser, with Finder semantics: nothing is ever
 //! overwritten, and name clashes get Finder names instead.
 
-// Until the browser calls these.
-#![allow(dead_code)]
-
 mod trash;
 
 use std::ffi::{CString, OsStr, OsString};

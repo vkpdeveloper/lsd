@@ -1,9 +1,6 @@
 //! Sidebar places: Favorites and Locations, like Finder's sidebar. Everything
 //! here is a few syscalls and small file reads, with no processes spawned.
 
-// Until the browser calls these.
-#![allow(dead_code)]
-
 use std::ffi::CString;
 use std::fs;
 use std::os::unix::ffi::OsStrExt;

@@ -16,7 +16,6 @@ pub struct Entry {
     pub size: u64,
     pub modified: Option<SystemTime>,
     pub created: Option<SystemTime>,
-    pub accessed: Option<SystemTime>,
     pub mode: u32,
 }
 
@@ -47,7 +46,6 @@ impl Entry {
             size: meta.len(),
             modified: meta.modified().ok(),
             created: meta.created().ok(),
-            accessed: meta.accessed().ok(),
             mode: mode_of(meta),
         }
     }

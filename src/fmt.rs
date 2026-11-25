@@ -186,16 +186,6 @@ pub fn label_lines(name: &str, max: usize) -> Vec<String> {
     ]
 }
 
-/// Pads `s` to `w` columns, centered.
-pub fn center(s: &str, w: usize) -> String {
-    let sw = width(s);
-    if sw >= w {
-        return s.to_string();
-    }
-    let left = (w - sw) / 2;
-    format!("{}{s}{}", " ".repeat(left), " ".repeat(w - sw - left))
-}
-
 /// `file://host/path` with percent-encoding, for OSC 8 links. Relative paths
 /// are made absolute, or clicking `./notes.txt` would open nothing.
 pub fn file_url(path: &Path) -> String {

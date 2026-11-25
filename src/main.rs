@@ -1,6 +1,7 @@
 mod diacritics;
 mod doc;
 mod entry;
+mod epub;
 mod fmt;
 mod fsops;
 mod glyph;

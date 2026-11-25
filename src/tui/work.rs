@@ -11,6 +11,7 @@ use std::time::SystemTime;
 
 use ratatui::crossterm::event::Event;
 
+use crate::doc::{self, Line};
 use crate::entry::{self, Entry, Sort};
 use crate::halfblock;
 use crate::meta::{self, Info};
@@ -116,6 +117,16 @@ pub struct HalfKey {
     rows: u16,
 }
 
+/// A text preview: the file as it is now, at one size.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct TextKey {
+    path: PathBuf,
+    modified: Option<SystemTime>,
+    size: u64,
+    cols: u16,
+    rows: u16,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct InfoKey {
     path: PathBuf,
@@ -217,6 +228,8 @@ pub struct Loader {
     halves: HashMap<HalfKey, Option<Rc<Grid>>>,
     halves_used: HashSet<HalfKey>,
     infos: HashMap<InfoKey, Rc<Info>>,
+    texts: HashMap<TextKey, Option<Rc<[Line]>>>,
+    texts_used: HashSet<TextKey>,
     wanted: Vec<(u8, Job)>,
     wanted_keys: HashSet<JobKey>,
     /// Everything queued by the last frame.
@@ -247,6 +260,8 @@ impl Loader {
             halves: HashMap::new(),
             halves_used: HashSet::new(),
             infos: HashMap::new(),
+            texts: HashMap::new(),
+            texts_used: HashSet::new(),
             wanted: Vec::new(),
             wanted_keys: HashSet::new(),
             requested: HashSet::new(),
@@ -296,6 +311,26 @@ impl Loader {
         None
     }
 
+    /// The first `rows` lines of a text file laid out `cols` wide, or None
+    /// when it is not text. Built right here, on the UI thread: only one
+    /// screen gets colored, once per file, and that takes a millisecond or two.
+    pub fn text(&mut self, e: &Entry, cols: u16, rows: u16) -> Option<Rc<[Line]>> {
+        let key = TextKey {
+            path: e.path.clone(),
+            modified: e.modified,
+            size: e.size,
+            cols,
+            rows,
+        };
+        self.texts_used.insert(key.clone());
+        if let Some(lines) = self.texts.get(&key) {
+            return lines.clone();
+        }
+        let lines: Option<Rc<[Line]>> = doc::preview(e, cols as usize, rows as usize).map(Rc::from);
+        self.texts.insert(key, lines.clone());
+        lines
+    }
+
     pub fn info(&mut self, e: &Entry) -> Option<Rc<Info>> {
         let key = InfoKey::new(e);
         if let Some(info) = self.infos.get(&key) {
@@ -336,6 +371,10 @@ impl Loader {
         let used = std::mem::take(&mut self.halves_used);
         if self.halves.len() > 24 {
             self.halves.retain(|k, _| used.contains(k));
+        }
+        let used = std::mem::take(&mut self.texts_used);
+        if self.texts.len() > 64 {
+            self.texts.retain(|k, _| used.contains(k));
         }
     }
 

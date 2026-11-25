@@ -13,6 +13,7 @@ use super::ui::{
     Ctx, centered, fill, glyph, glyph_in, keys, rename_field, text, text_right, vline,
 };
 use super::work::{Lookup, PRIO_PREVIEW, PRIO_VISIBLE};
+use crate::doc::Line;
 use crate::entry::{Entry, SortKey};
 use crate::fmt;
 use crate::meta;
@@ -614,16 +615,16 @@ fn details(buf: &mut Buffer, area: Rect, e: &Entry, cx: &mut Ctx) {
         .square_rows(area.width)
         .min(area.height * 2 / 5)
         .max(3);
-    picture(
-        buf,
-        cx,
-        Rect {
-            height: pic_h,
-            ..area
-        },
-        e,
-        true,
-    );
+    let pic = Rect {
+        height: pic_h,
+        ..area
+    };
+    match cx.load.text(e, pic.width, pic.height) {
+        Some(lines) => draw_lines(buf, pic, &lines),
+        None => {
+            picture(buf, cx, pic, e, true);
+        }
+    }
 
     let mut y = area.y + pic_h + 1;
     let bottom = area.bottom();
@@ -715,6 +716,23 @@ fn details(buf: &mut Buffer, area: Rect, e: &Entry, cx: &mut Ctx) {
             Style::new(),
         );
         y += 1;
+    }
+}
+
+/// Styled lines from the top of `area`, cut at its edges.
+fn draw_lines(buf: &mut Buffer, area: Rect, lines: &[Line]) {
+    for (line, y) in lines.iter().zip(area.top()..area.bottom()) {
+        let mut x = area.x;
+        for span in line {
+            x = text(
+                buf,
+                x,
+                y,
+                &span.text,
+                area.right().saturating_sub(x),
+                span.style,
+            );
+        }
     }
 }
 
@@ -859,7 +877,12 @@ pub fn quick_look(buf: &mut Buffer, area: Rect, app: &mut App, e: &Entry, cx: &m
         width: area.width.saturating_sub(4),
         height: area.height.saturating_sub(4),
     };
-    picture(buf, cx, pic, e, false);
+    match cx.load.text(e, pic.width, pic.height) {
+        Some(lines) => draw_lines(buf, pic, &lines),
+        None => {
+            picture(buf, cx, pic, e, false);
+        }
+    }
     // Neighbours first, so arrowing through a folder feels instant.
     let px = cx.pics.px((pic.width, pic.height));
     for i in [app.sel + 1, app.sel.wrapping_sub(1)] {

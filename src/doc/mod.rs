@@ -1,6 +1,7 @@
 //! Quick Look for text: JSON and source code laid out as styled lines in the
 //! terminal's own palette, so every theme works. Markdown, PDFs and books
-//! open in Leaf instead (see `leaf`); here Markdown shows as colored source.
+//! open in Leaf instead (see `leaf`); the browser's previews still show
+//! Markdown and tables as colored source.
 //!
 //! Lines use ratatui styles so the browser can show them as they are, and the
 //! inline views turn them into escapes with [`push_ansi`].
@@ -53,7 +54,46 @@ pub enum Kind {
 /// short. Reads at most [`MAX_BYTES`] to tell text from binary. Documents Leaf
 /// reads are left to it.
 pub fn load(entry: &Entry) -> Option<(Kind, String, bool)> {
-    if entry.is_dir || crate::leaf::reads(entry) {
+    if crate::leaf::reads(entry) {
+        return None;
+    }
+    read(entry, MAX_BYTES)
+}
+
+/// How much of a file a preview reads. JSON cut short here can't be laid out
+/// pretty, so it shows as colored source instead.
+const PREVIEW_BYTES: usize = 256 << 10;
+
+/// The first `rows` lines of a text file laid out `width` wide, for the
+/// browser's previews. None when it is not text, or empty.
+pub fn preview(entry: &Entry, width: usize, rows: usize) -> Option<Vec<Line>> {
+    let (kind, text, cut) = read(entry, PREVIEW_BYTES)?;
+    let json = match kind {
+        Kind::Json if !cut => json::render(&text, width),
+        _ => None,
+    };
+    let lines = match json {
+        Some(mut lines) => {
+            lines.truncate(rows);
+            lines
+        }
+        None => {
+            // Nothing past a screenful of characters and line breaks can
+            // show, and laying out one long line in full is the slow part.
+            let end = text
+                .char_indices()
+                .nth(rows * (width + 1))
+                .map_or(text.len(), |(i, _)| i);
+            code::render(&text[..end], &entry.path, width)
+                .take(rows)
+                .collect()
+        }
+    };
+    (!lines.is_empty()).then_some(lines)
+}
+
+fn read(entry: &Entry, max: usize) -> Option<(Kind, String, bool)> {
+    if entry.is_dir {
         return None;
     }
     let kind = match entry.ext().as_str() {
@@ -63,21 +103,24 @@ pub fn load(entry: &Entry) -> Option<(Kind, String, bool)> {
             _ => return None,
         },
     };
-    let (text, cut) = read_text(&entry.path)?;
+    let (text, cut) = read_text(&entry.path, max)?;
     Some((kind, text, cut))
 }
 
-/// The file as UTF-8, if it looks like text. The flag says it was cut short.
-fn read_text(path: &Path) -> Option<(String, bool)> {
+/// The first `max` bytes of the file as UTF-8, if it looks like text. The
+/// flag says it was cut short.
+fn read_text(path: &Path, max: usize) -> Option<(String, bool)> {
     use std::io::Read;
-    let file = std::fs::File::open(path).ok()?;
+    let mut file = std::fs::File::open(path).ok()?.take(max as u64 + 1);
     let mut buf = Vec::new();
-    file.take(MAX_BYTES as u64 + 1).read_to_end(&mut buf).ok()?;
-    let cut = buf.len() > MAX_BYTES;
-    buf.truncate(MAX_BYTES);
-    if buf[..buf.len().min(8192)].contains(&0) {
+    // Binary files show a NUL early, so look before reading the rest.
+    (&mut file).take(8192).read_to_end(&mut buf).ok()?;
+    if buf.contains(&0) {
         return None;
     }
+    file.read_to_end(&mut buf).ok()?;
+    let cut = buf.len() > max;
+    buf.truncate(max);
     let text = match String::from_utf8(buf) {
         Ok(s) => s,
         // A cut can land inside a character; anything else is not text.
@@ -135,7 +178,9 @@ impl Wrap {
     pub fn word(&mut self, word: &str, style: Style, link: Option<&Rc<str>>) {
         let w = fmt::width(word);
         let space = usize::from(self.space.is_some() && !self.empty);
-        if !self.empty && self.cur_w + space + w > self.width {
+        // A word too long for any line starts right here, wasting no room.
+        let fits_a_line = line_width(&self.rest) + w <= self.width;
+        if !self.empty && fits_a_line && self.cur_w + space + w > self.width {
             self.newline();
         } else if let Some(style) = self.space.take().filter(|_| !self.empty) {
             self.push(" ", style, None);
@@ -312,6 +357,11 @@ mod tests {
         let mut w = Wrap::new(8, vec![], vec![]);
         w.text("abcdefghijkl", Style::new(), None);
         assert_eq!(text(&w.finish()), ["abcdefgh", "ijkl"]);
+
+        // It starts on the line it is on instead of leaving a gap.
+        let mut w = Wrap::new(8, vec![], vec![]);
+        w.text("ab cdefghijkl", Style::new(), None);
+        assert_eq!(text(&w.finish()), ["ab cdefg", "hijkl"]);
     }
 
     #[test]
@@ -323,5 +373,30 @@ mod tests {
         let lines = w.finish();
         assert_eq!(lines[0].len(), 2);
         assert_eq!(lines[0][1].text, "bold");
+    }
+
+    #[test]
+    fn previews_the_start_of_text_files() {
+        let tmp = crate::fsops::tests::TempDir::new();
+        let preview = |name: &str, bytes: &[u8]| {
+            let path = tmp.path().join(name);
+            std::fs::write(&path, bytes).unwrap();
+            super::preview(&Entry::from_path(&path).unwrap(), 40, 3).map(|l| text(&l))
+        };
+
+        let pretty = preview("small.json", br#"{"a":[1,2],"b":{"c":"d","e":"f"}}"#).unwrap();
+        assert_eq!(pretty[0].trim(), "{");
+        assert_eq!(pretty.len(), 3);
+
+        // Too long to parse for a preview, so it shows as written.
+        let mut big = br#"{"k":"#.to_vec();
+        big.extend(std::iter::repeat_n(b'1', PREVIEW_BYTES));
+        big.push(b'}');
+        let source = preview("big.json", &big).unwrap();
+        assert!(source[0].starts_with(r#"1  {"k":111"#), "{source:?}");
+
+        assert_eq!(preview("blob", b"\x7fELF\0\0\x01"), None);
+        // Shows its icon instead of a blank page.
+        assert_eq!(preview("empty.txt", b""), None);
     }
 }

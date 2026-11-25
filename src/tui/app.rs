@@ -10,6 +10,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as B64;
 use ratatui::layout::Rect;
 
+use super::input::Pending;
 use super::work::{self, Done, Listing, Msg};
 use crate::entry::{self, Entry, Sort, SortKey};
 use crate::places::{self, Place};
@@ -38,8 +39,13 @@ impl View {
 
 pub enum Mode {
     Normal,
+    /// vim's visual mode: the items between the anchor and the selection
+    /// are marked while it lasts.
+    Visual(Visual),
     /// Typing in the filter field.
     Filter,
+    /// Typing a `:` command.
+    Command(String),
     Rename(Rename),
     /// Waiting for y/n before moving these to the Trash.
     Confirm(Vec<PathBuf>),
@@ -47,10 +53,37 @@ pub enum Mode {
     QuickLook,
 }
 
+pub struct Visual {
+    anchor: PathBuf,
+    /// Marks from before, put back if visual mode is cancelled.
+    saved: HashSet<PathBuf>,
+}
+
 pub struct Rename {
     pub path: PathBuf,
     pub text: Vec<char>,
     pub cursor: usize,
+}
+
+/// Where renaming starts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RenameAt {
+    /// Cursor before the extension, like Finder.
+    Extension,
+    Start,
+    End,
+    /// The name is cleared and the extension kept (vim's `cw`).
+    NewStem,
+    /// Everything is cleared (`cc`).
+    NewName,
+}
+
+/// Where `zt`, `zz` and `zb` put the selection, and where `H`, `M` and `L` jump.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Align {
+    Top,
+    Middle,
+    Bottom,
 }
 
 pub struct Status {
@@ -98,6 +131,12 @@ pub struct App {
     pub sort: Sort,
     pub hidden: bool,
     pub filter: String,
+    /// The last filter typed, for `n` and `N`.
+    pub search: String,
+    /// The last `f` or `F` jump (letter, backwards), for `;` and `,`.
+    pub find: Option<(char, bool)>,
+    /// A vim command typed so far.
+    pub keys: Pending,
     pub mode: Mode,
     pub marks: HashSet<PathBuf>,
     pub clip: Option<Clip>,
@@ -155,6 +194,9 @@ impl App {
             sort,
             hidden,
             filter: String::new(),
+            search: String::new(),
+            find: None,
+            keys: Pending::default(),
             mode: Mode::Normal,
             marks: HashSet::new(),
             clip: None,
@@ -241,16 +283,6 @@ impl App {
         self.select((self.sel as isize + delta).clamp(0, last.max(0)) as usize);
     }
 
-    /// Up and down in the icon grid. Moving down into a short last row lands on
-    /// its last item; moving past the edge does nothing.
-    pub fn move_rows(&mut self, rows: isize) {
-        let cols = self.grid_cols.max(1);
-        let len = self.visible.len();
-        if let Some(i) = grid_step(self.sel, rows, cols, len) {
-            self.select(i);
-        }
-    }
-
     pub fn scroll_by(&mut self, rows: isize) {
         self.scroll = (self.scroll as isize + rows).max(0) as usize;
         self.follow = false;
@@ -264,6 +296,108 @@ impl App {
             self.marks.insert(path);
         }
         self.move_by(1);
+    }
+
+    /// Paths from visible item `a` to `b`, both included, in display order.
+    pub fn span(&self, a: usize, b: usize) -> Vec<PathBuf> {
+        let Some(last) = self.visible.len().checked_sub(1) else {
+            return Vec::new();
+        };
+        let (lo, hi) = (a.min(b).min(last), a.max(b).min(last));
+        self.visible[lo..=hi]
+            .iter()
+            .map(|&i| self.list.entries[i].path.clone())
+            .collect()
+    }
+
+    /// Items per row: the icon grid's columns, one in every other view.
+    pub fn cols(&self) -> usize {
+        if self.view == View::Icons {
+            self.grid_cols.max(1)
+        } else {
+            1
+        }
+    }
+
+    /// Rows on screen, from the last draw.
+    pub fn rows_shown(&self) -> usize {
+        (self.page / self.cols()).max(1)
+    }
+
+    /// The first row on screen. The gallery has no scroll: it keeps the
+    /// selection in the middle.
+    pub fn top_row(&self) -> usize {
+        if self.view == View::Gallery {
+            let n = self.visible.len();
+            return self
+                .sel
+                .saturating_sub(self.page / 2)
+                .min(n.saturating_sub(self.page));
+        }
+        self.scroll
+    }
+
+    /// Scrolls so the selection sits at the top, middle or bottom (`zt`,
+    /// `zz`, `zb`).
+    pub fn align(&mut self, at: Align) {
+        let (row, rows) = (self.sel / self.cols(), self.rows_shown());
+        self.scroll = match at {
+            Align::Top => row,
+            Align::Middle => row.saturating_sub((rows - 1) / 2),
+            Align::Bottom => (row + 1).saturating_sub(rows),
+        };
+        self.follow = false;
+    }
+
+    // Visual mode
+
+    pub fn start_visual(&mut self) {
+        let Some(anchor) = self.current().map(|e| e.path.clone()) else {
+            return;
+        };
+        let saved = self.marks.clone();
+        self.mode = Mode::Visual(Visual { anchor, saved });
+        self.update_visual();
+    }
+
+    /// Marks the range again after the selection moved.
+    pub fn update_visual(&mut self) {
+        let Mode::Visual(v) = &self.mode else { return };
+        // The anchor is found by path, so a reload cannot shift it.
+        let anchor = self
+            .visible
+            .iter()
+            .position(|&i| self.list.entries[i].path == v.anchor)
+            .unwrap_or(self.sel);
+        let mut marks = v.saved.clone();
+        marks.extend(self.span(anchor, self.sel));
+        self.marks = marks;
+    }
+
+    /// `o`: the selection jumps to the other end of the range.
+    pub fn swap_visual(&mut self) {
+        let Some(here) = self.current().map(|e| e.path.clone()) else {
+            return;
+        };
+        let Mode::Visual(v) = &mut self.mode else {
+            return;
+        };
+        let anchor = std::mem::replace(&mut v.anchor, here);
+        if let Some(i) = self
+            .visible
+            .iter()
+            .position(|&i| self.list.entries[i].path == anchor)
+        {
+            self.select(i);
+        }
+    }
+
+    /// Leaves visual mode. Cancelling puts the old marks back; otherwise the
+    /// range was acted on and nothing stays marked, as in vim.
+    pub fn end_visual(&mut self, cancel: bool) {
+        if let Mode::Visual(v) = std::mem::replace(&mut self.mode, Mode::Normal) {
+            self.marks = if cancel { v.saved } else { HashSet::new() };
+        }
     }
 
     // Navigation
@@ -322,6 +456,22 @@ impl App {
         if let Some(home) = std::env::var_os("HOME") {
             let home = PathBuf::from(home);
             self.go(std::fs::canonicalize(&home).unwrap_or(home));
+        }
+    }
+
+    /// `:cd`: a folder relative to this one, `~` for home, `-` for back.
+    pub fn cd(&mut self, arg: &str) {
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        let path = match (arg, &home) {
+            ("", _) => return self.home(),
+            ("-", _) => return self.go_back(),
+            ("~", Some(home)) => home.clone(),
+            (arg, Some(home)) if arg.starts_with("~/") => home.join(&arg[2..]),
+            (arg, _) => self.cwd.join(arg),
+        };
+        match std::fs::canonicalize(&path) {
+            Ok(dir) if dir.is_dir() => self.go(dir),
+            _ => self.fail(format!("No such folder: {arg}")),
         }
     }
 
@@ -452,6 +602,9 @@ impl App {
 
     pub fn set_filter(&mut self, text: String) {
         let keep = self.current().map(|e| e.name.clone());
+        if !text.is_empty() {
+            self.search.clone_from(&text);
+        }
         self.filter = text;
         self.rebuild();
         let at = keep.and_then(|name| self.position(&name));
@@ -529,6 +682,13 @@ impl App {
             self.read = Some((reader, path));
             return;
         }
+        self.open_default();
+    }
+
+    /// Opens with the default app, even a folder or a document (`gx`).
+    pub fn open_default(&mut self) {
+        let Some(e) = self.current() else { return };
+        let (path, name) = (e.path.clone(), e.name.clone());
         if let Err(err) = fsops::open(&path) {
             self.fail(format!("Could not open “{name}”: {}", work::describe(&err)));
         }
@@ -543,25 +703,30 @@ impl App {
         }
     }
 
-    pub fn copy_path(&mut self) {
-        let paths = self.targets();
+    /// Puts the paths on the system clipboard, one per line (`yp`), or just
+    /// the names (`yn`).
+    pub fn copy_text(&mut self, paths: &[PathBuf], names: bool) {
         if paths.is_empty() {
             return;
         }
         let text = paths
             .iter()
-            .map(|p| p.to_string_lossy())
+            .map(|p| match p.file_name() {
+                Some(name) if names => name.to_string_lossy(),
+                _ => p.to_string_lossy(),
+            })
             .collect::<Vec<_>>()
             .join("\n");
         self.osc.extend_from_slice(&clipboard_osc(&text));
+        let what = if names { "name" } else { "path" };
         self.say(match paths.len() {
-            1 => "Copied path".to_string(),
-            n => format!("Copied {n} paths"),
+            1 => format!("Copied {what}"),
+            n => format!("Copied {n} {what}s"),
         });
     }
 
-    pub fn set_clip(&mut self, cut: bool) {
-        let paths = self.targets();
+    /// Copies or cuts items, to paste with `p`.
+    pub fn set_clip(&mut self, paths: Vec<PathBuf>, cut: bool) {
         if paths.is_empty() {
             return;
         }
@@ -613,8 +778,7 @@ impl App {
         });
     }
 
-    pub fn ask_trash(&mut self) {
-        let paths = self.targets();
+    pub fn ask_trash(&mut self, paths: Vec<PathBuf>) {
         if !paths.is_empty() {
             self.mode = Mode::Confirm(paths);
         }
@@ -651,13 +815,26 @@ impl App {
         self.load(self.cwd.clone());
     }
 
-    pub fn start_rename(&mut self) {
+    pub fn start_rename(&mut self, at: RenameAt) {
         let Some(e) = self.current() else { return };
-        let text: Vec<char> = e.name.chars().collect();
-        // Like Finder, put the cursor before the extension.
-        let cursor = match e.name.rfind('.') {
+        let mut text: Vec<char> = e.name.chars().collect();
+        // Folders and dotfiles have no extension.
+        let stem = match e.name.rfind('.') {
             Some(dot) if dot > 0 && !e.is_dir => e.name[..dot].chars().count(),
             _ => text.len(),
+        };
+        let cursor = match at {
+            RenameAt::Extension => stem,
+            RenameAt::Start => 0,
+            RenameAt::End => text.len(),
+            RenameAt::NewStem => {
+                text.drain(..stem);
+                0
+            }
+            RenameAt::NewName => {
+                text.clear();
+                0
+            }
         };
         self.mode = Mode::Rename(Rename {
             path: e.path.clone(),
@@ -689,7 +866,7 @@ impl App {
                     self.set_filter(String::new());
                 }
                 self.upsert(None, &path);
-                self.start_rename();
+                self.start_rename(RenameAt::Extension);
             }
             Err(err) => self.fail(format!("Could not make a folder: {}", work::describe(&err))),
         }

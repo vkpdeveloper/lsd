@@ -335,7 +335,13 @@ fn path_bar(buf: &mut Buffer, area: Rect, app: &mut App, cx: &mut Ctx) {
 fn hints(buf: &mut Buffer, area: Rect, app: &App, cx: &mut Ctx) {
     let th = cx.th;
     let (x, y) = (area.x + 2, area.y);
-    let w = area.width.saturating_sub(4);
+    let mut w = area.width.saturating_sub(4);
+    // A half-typed vim command, in the corner like vim's showcmd.
+    let pending = app.keys.show();
+    if !pending.is_empty() {
+        text_right(buf, area.right() - 2, y, &pending, Style::new());
+        w = w.saturating_sub(fmt::width(&pending) as u16 + 2);
+    }
     match &app.mode {
         Mode::Confirm(paths) => {
             let what = match paths.as_slice() {
@@ -362,6 +368,25 @@ fn hints(buf: &mut Buffer, area: Rect, app: &App, cx: &mut Ctx) {
                 th,
             );
         }
+        Mode::Visual(_) => {
+            let selected = format!("{} selected  ", app.marks.len());
+            let bold = Style::new().add_modifier(Modifier::BOLD);
+            let x = text(buf, x, y, &selected, w, bold);
+            let pairs = [
+                ("y", "Copy"),
+                ("d", "Cut"),
+                ("D", "Trash"),
+                ("o", "Other end"),
+                ("Esc", "Cancel"),
+            ];
+            keys(buf, x, y, (area.x + 2 + w).saturating_sub(x), &pairs, th);
+        }
+        Mode::Command(line) => {
+            let x = text(buf, x, y, ":", 1, Style::new());
+            let chars: Vec<char> = line.chars().collect();
+            let field = Rect::new(x, y, (area.x + 2 + w).saturating_sub(x), 1);
+            edit_line(buf, field, &chars, chars.len(), true, Style::new());
+        }
         Mode::Rename(_) => keys(buf, x, y, w, &[("Enter", "Rename"), ("Esc", "Cancel")], th),
         Mode::Filter => keys(buf, x, y, w, &[("Enter", "Done"), ("Esc", "Clear")], th),
         _ => match &app.status {
@@ -385,8 +410,9 @@ fn hints(buf: &mut Buffer, area: Rect, app: &App, cx: &mut Ctx) {
                     ("Enter", "Open"),
                     ("Space", "Quick Look"),
                     ("/", "Filter"),
-                    ("1-4", "View"),
-                    ("p", "Preview"),
+                    ("yy", "Copy"),
+                    ("dd", "Cut"),
+                    ("p", "Paste"),
                     ("?", "Keys"),
                     ("q", "Quit"),
                 ],
@@ -417,29 +443,39 @@ pub fn keys(buf: &mut Buffer, mut x: u16, y: u16, w: u16, pairs: &[(&str, &str)]
 }
 
 const HELP: &[(&str, &str)] = &[
-    ("Arrows  h j k l", "Move"),
+    ("h j k l", "Move"),
     ("Enter", "Open"),
-    ("Backspace", "Enclosing folder"),
-    ("[  ]", "Back, forward"),
+    ("gx", "Open in default app"),
+    ("-  Backspace", "Enclosing folder"),
+    ("Ctrl-o  Ctrl-i", "Back, forward"),
     ("~", "Home"),
-    ("g  G", "First, last"),
-    ("PgUp  PgDn", "Page up, down"),
-    ("Space", "Quick Look"),
-    ("/", "Filter"),
-    (".", "Hidden files"),
-    ("s  S", "Sort by, reverse"),
-    ("1  2  3  4", "Icons, list, columns, gallery"),
-    ("p", "Preview pane"),
-    ("b", "Sidebar"),
-    ("f", REVEAL),
-    ("y", "Copy path"),
-    ("c  x  v", "Copy, cut, paste"),
-    ("r", "Rename"),
-    ("n", "New folder"),
-    ("d", "Move to Trash"),
+    ("gg  G", "First, last"),
+    ("Ctrl-d  Ctrl-u", "Half page down, up"),
+    ("Ctrl-f  Ctrl-b", "Page down, up"),
+    ("H  M  L", "Top, middle, bottom"),
+    ("fx  Fx  ;  ,", "Jump by letter"),
+    ("/  n  N", "Filter, find again"),
+    ("5j  3dd", "Repeat with a count"),
+    ("yy  dd  p", "Copy, cut, paste"),
+    ("yj  dG", "Copy, cut to a move"),
+    ("v", "Select a range"),
     ("m", "Mark"),
+    ("yp  yn", "Copy path, name"),
+    ("r  I  A", "Rename"),
+    ("cw  cc", "Replace name, all"),
+    ("a", "New folder"),
+    ("D  Delete", "Move to Trash"),
+    ("Space", "Quick Look"),
+    ("zi  zl", "Icons, list"),
+    ("zc  zg", "Columns, gallery"),
+    ("zt  zz  zb", "Scroll top, mid, bottom"),
+    ("zh  .", "Hidden files"),
+    ("zp  zs", "Preview pane, sidebar"),
+    ("s  S", "Sort by, reverse"),
+    ("O", REVEAL),
+    (":cd", "Go to a folder"),
     ("Esc", "Clear filter, marks"),
-    ("q", "Quit"),
+    ("q  ZZ  :q", "Quit"),
 ];
 
 const REVEAL: &str = if cfg!(target_os = "macos") {
@@ -457,12 +493,22 @@ fn help(buf: &mut Buffer, area: Rect, cx: &mut Ctx) {
         2
     };
     let per_col = HELP.len().div_ceil(cols as usize);
-    // Natural widths, shrunk to fit a narrow window.
-    let key_w = HELP.iter().map(|(k, _)| fmt::width(k)).max().unwrap_or(0) as u16 + 2;
-    let what_w = HELP.iter().map(|(_, w)| fmt::width(w)).max().unwrap_or(0) as u16;
+    // Natural widths, shrunk to fit a narrow window. Each column sizes its
+    // keys on its own, so short keys leave more room for their labels.
+    let key_ws: Vec<u16> = HELP
+        .chunks(per_col)
+        .map(|keys| keys.iter().map(|(k, _)| fmt::width(k)).max().unwrap_or(0) as u16 + 2)
+        .collect();
+    let natural = HELP
+        .chunks(per_col)
+        .zip(&key_ws)
+        .map(|(keys, key_w)| {
+            key_w + keys.iter().map(|(_, w)| fmt::width(w)).max().unwrap_or(0) as u16
+        })
+        .max()
+        .unwrap_or(0);
     let room = area.width.saturating_sub(6 + GAP * (cols - 1)) / cols;
-    let col_w = (key_w + what_w).min(room);
-    let key_w = key_w.min(col_w / 2);
+    let col_w = natural.min(room);
     let w = col_w * cols + GAP * (cols - 1) + 4;
     let h = (per_col as u16 + 4).min(area.height - 2);
     let rect = Rect::new(
@@ -482,6 +528,7 @@ fn help(buf: &mut Buffer, area: Rect, cx: &mut Ctx) {
     let inner = Rect::new(rect.x + 2, rect.y + 2, rect.width - 4, rect.height - 3);
     for (i, (key, what)) in HELP.iter().enumerate() {
         let (c, r) = (i / per_col, i % per_col);
+        let key_w = key_ws[c].min(col_w / 2);
         let x = inner.x + c as u16 * (col_w + GAP);
         let y = inner.y + r as u16;
         if y >= inner.bottom() {

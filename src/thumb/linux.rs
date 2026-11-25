@@ -13,7 +13,9 @@ use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use image::{DynamicImage, ImageDecoder, ImageReader};
 
-use super::{Class, Job, What, icon, png_size, save_png, tmp_path, write_atomic};
+use super::{
+    Class, Job, What, book_thumb, icon, png_size, save_png, save_scaled, tmp_path, write_atomic,
+};
 
 /// A stuck tool is killed after this long.
 const TIMEOUT: Duration = Duration::from_secs(5);
@@ -25,6 +27,7 @@ pub fn renders(class: Class, ext: &str) -> bool {
         }
         Class::Video => tools().ffmpegthumbnailer.is_some() || tools().ffmpeg.is_some(),
         Class::Pdf => tools().pdftoppm.is_some(),
+        Class::Book => true,
         Class::Other => false,
     }
 }
@@ -65,6 +68,7 @@ fn render(job: &Job) -> Option<(u32, u32)> {
             Class::Image => image_thumb(&job.src, job.px, &job.out),
             Class::Video => video_thumb(job),
             Class::Pdf => pdf_thumb(job),
+            Class::Book => book_thumb(job),
             Class::Other => None,
         }),
     }
@@ -82,12 +86,7 @@ pub(super) fn image_thumb(src: &Path, px: u32, out: &Path) -> Option<(u32, u32)>
     if let Some(o) = orientation {
         img.apply_orientation(o);
     }
-    // Downscale only; the terminal scales small pictures up itself.
-    if img.width() > px || img.height() > px {
-        img = img.thumbnail(px, px);
-    }
-    let rgba = img.into_rgba8();
-    save_png(out, rgba.width(), rgba.height(), &rgba)
+    save_scaled(img, px, out)
 }
 
 fn video_thumb(job: &Job) -> Option<(u32, u32)> {

@@ -133,6 +133,12 @@ pub fn generate(jobs: &[Job], done: &mut dyn FnMut(usize, Option<(u32, u32)>)) {
     let mut next = 0;
     loop {
         while flights.len() < IN_FLIGHT && next < jobs.len() {
+            // QuickLook draws only the Books icon for an EPUB.
+            if matches!(jobs[next].what, What::Content(Class::Book)) {
+                done(next, super::book_thumb(&jobs[next]));
+                next += 1;
+                continue;
+            }
             let token = TOKENS.fetch_add(1, Ordering::Relaxed);
             let pend = Pending {
                 job: next,

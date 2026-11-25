@@ -6,13 +6,15 @@
 //!
 //! Which picture an entry gets (see [`content`]):
 //! - Content thumbnails are cached per file, keyed by path, size, mtime, pixel
-//!   size and mode: images, video, PDF, and other formats QuickLook renders
+//!   size and mode: images, video, PDF, EPUB covers (read by lsd on every
+//!   platform, since QuickLook only draws the Books icon), and other formats
+//!   QuickLook renders
 //!   (office and iWork documents, fonts, audio, ...), plus `.app` bundles and
 //!   the special folders (Downloads, Applications, ...) whose icons differ.
 //! - Everything else shares one icon per type: folders, each extension,
 //!   extensionless files, executables. A 5000-entry node_modules costs a
 //!   handful of renders, not 5000.
-//! - At 64 px and below (list and tree rows) only images, video and PDF get
+//! - At 64 px and below (list and tree rows) only images, video, PDF and books get
 //!   content thumbnails; office documents and the like use the type icon.
 //! - Preview mode shows one file at a time, so on macOS every file gets its
 //!   content (text included).
@@ -46,7 +48,7 @@ use std::time::UNIX_EPOCH;
 use crate::entry::Entry;
 
 /// Bump when the look of generated thumbnails changes, to start a fresh cache.
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 /// Largest size that counts as a list or tree row.
 const SMALL: u32 = 64;
@@ -75,6 +77,8 @@ pub(crate) enum Class {
     Image,
     Video,
     Pdf,
+    /// EPUB, whose cover lsd reads itself.
+    Book,
     /// Anything else QuickLook draws per file: documents, fonts, audio, apps.
     Other,
 }
@@ -92,8 +96,8 @@ pub(crate) enum Icon {
     Exec,
 }
 
-/// QuickLook picks its own generator and icon, so only the Linux backend
-/// reads the payloads.
+/// QuickLook picks its own generator and icon, so on macOS only books are
+/// told apart; the Linux backend reads every payload.
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 pub(crate) enum What {
     Content(Class),
@@ -408,7 +412,9 @@ fn content(entry: &Entry, ext: &str, px: u32, mode: Mode) -> Option<Class> {
         return None;
     }
     match (mode, class) {
-        (Mode::Preview, _) | (_, Class::Image | Class::Video | Class::Pdf) => Some(class),
+        (Mode::Preview, _) | (_, Class::Image | Class::Video | Class::Pdf | Class::Book) => {
+            Some(class)
+        }
         (Mode::Icon, Class::Other) => (px > SMALL).then_some(class),
     }
 }
@@ -421,12 +427,11 @@ pub(crate) fn class_of(ext: &str) -> Option<Class> {
         "mp4" | "m4v" | "mov" | "qt" | "mkv" | "webm" | "avi" | "wmv" | "flv" | "mpg" | "mpeg"
         | "m2ts" | "3gp" | "ogv" => Class::Video,
         "pdf" => Class::Pdf,
+        "epub" => Class::Book,
         "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "odt" | "ods" | "odp" | "rtf"
-        | "rtfd" | "pages" | "numbers" | "key" | "epub" | "ai" | "eps" | "ps" | "sketch"
-        | "ttf" | "otf" | "ttc" | "woff" | "woff2" | "mp3" | "m4a" | "aac" | "flac" | "aiff"
-        | "aif" | "usdz" | "usd" | "reality" | "obj" | "stl" | "glb" | "gltf" | "dae" | "scn" => {
-            Class::Other
-        }
+        | "rtfd" | "pages" | "numbers" | "key" | "ai" | "eps" | "ps" | "sketch" | "ttf" | "otf"
+        | "ttc" | "woff" | "woff2" | "mp3" | "m4a" | "aac" | "flac" | "aiff" | "aif" | "usdz"
+        | "usd" | "reality" | "obj" | "stl" | "glb" | "gltf" | "dae" | "scn" => Class::Other,
         _ => return None,
     })
 }
@@ -501,6 +506,22 @@ impl Hasher for Fnv {
     fn finish(&self) -> u64 {
         self.0
     }
+}
+
+/// A book's cover, scaled to fit `job.px`.
+pub(crate) fn book_thumb(job: &Job) -> Option<(u32, u32)> {
+    let cover = crate::epub::cover(&job.src)?;
+    save_scaled(image::load_from_memory(&cover).ok()?, job.px, &job.out)
+}
+
+/// Saves `img` no larger than `px` on either side. Never scales up: the
+/// terminal does that itself.
+pub(crate) fn save_scaled(mut img: image::DynamicImage, px: u32, out: &Path) -> Option<(u32, u32)> {
+    if img.width() > px || img.height() > px {
+        img = img.thumbnail(px, px);
+    }
+    let rgba = img.into_rgba8();
+    save_png(out, rgba.width(), rgba.height(), &rgba)
 }
 
 /// Writes straight RGBA as a fast-compressed PNG. Atomic: a reader never sees
@@ -664,7 +685,7 @@ mod tests {
             assert_ne!(other, k);
         }
         // Stable across runs and toolchains: this name is on disk in users' caches.
-        assert_eq!(k.file_name().unwrap(), "a9693c76d25a351e.png");
+        assert_eq!(k.file_name().unwrap(), "f6205b4c3dcfdcc3.png");
     }
 
     #[test]

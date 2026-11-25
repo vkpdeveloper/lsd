@@ -5,8 +5,11 @@
 //! lines. iTerm2 pictures are drawn after the block's text by moving the cursor
 //! back up into the space the block left blank.
 
+pub mod gallery;
 pub mod icons;
+pub mod list;
 pub mod plain;
+pub mod tree;
 
 use std::collections::HashSet;
 use std::io::{self, Write};

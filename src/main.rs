@@ -40,9 +40,21 @@ struct Cli {
     #[arg(short, long, group = "view")]
     list: bool,
 
+    /// Tree view: folders expanded recursively.
+    #[arg(short = 'T', long, group = "view")]
+    tree: bool,
+
+    /// Gallery view: a large preview of each item with its details.
+    #[arg(short, long, group = "view")]
+    gallery: bool,
+
     /// One name per line, no images.
     #[arg(short = '1', group = "view")]
     one: bool,
+
+    /// With --tree: how many levels deep to go.
+    #[arg(short = 'L', long, value_name = "N")]
+    depth: Option<usize>,
 
     /// Show hidden files.
     #[arg(short, long)]
@@ -180,6 +192,7 @@ fn list(cli: &Cli, term: &Term) -> io::Result<bool> {
         },
     );
 
+    let single_file = paths.len() == 1 && files.len() == 1;
     let ctx = Ctx {
         term,
         thumbs: Thumbnailer::new(),
@@ -188,6 +201,24 @@ fn list(cli: &Cli, term: &Term) -> io::Result<bool> {
     };
     let stdout = io::stdout();
     let mut out = io::BufWriter::new(stdout.lock());
+    if cli.tree && ctx.term.tty {
+        let mut roots = files;
+        roots.extend(dirs);
+        let opts = view::tree::TreeOpts {
+            show_hidden: cli.all,
+            sort,
+            depth: cli.depth,
+        };
+        view::tree::render(&ctx, &roots, &opts, &mut out)?;
+        out.flush()?;
+        return Ok(ok);
+    }
+    // `lsd photo.jpg` shows the file's card, a bigger picture with its details.
+    if single_file && ctx.term.tty && !(cli.list || cli.one || cli.tree) {
+        view::gallery::render(&ctx, &files, &mut out)?;
+        out.flush()?;
+        return Ok(ok);
+    }
     let headings = paths.len() > 1;
     let mut first = true;
 
@@ -220,7 +251,12 @@ fn list(cli: &Cli, term: &Term) -> io::Result<bool> {
 
 fn show(cli: &Cli, ctx: &Ctx, entries: &[Entry], out: &mut impl Write) -> io::Result<()> {
     if cli.one || !ctx.term.tty {
-        return view::plain::lines(entries, out);
+        view::plain::lines(entries, out)
+    } else if cli.list {
+        view::list::render(ctx, entries, out)
+    } else if cli.gallery {
+        view::gallery::render(ctx, entries, out)
+    } else {
+        view::icons::render(ctx, entries, out)
     }
-    view::icons::render(ctx, entries, out)
 }

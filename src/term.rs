@@ -264,7 +264,7 @@ pub fn query_colors(timeout: Duration) -> Option<Colors> {
 /// Writes `request` to the controlling terminal and collects the reply until a
 /// DA1 answer (`ESC [ ? ... c`) arrives or `timeout` passes.
 fn query_tty(request: &[u8], timeout: Duration) -> Option<String> {
-    use std::io::{Read, Write};
+    use std::io::Write;
     use std::os::fd::AsRawFd;
 
     let mut tty = std::fs::OpenOptions::new()
@@ -283,12 +283,25 @@ fn query_tty(request: &[u8], timeout: Duration) -> Option<String> {
     unsafe { libc::tcsetattr(fd, libc::TCSANOW, &raw) };
 
     let mut reply = Vec::new();
-    let ok = tty.write_all(request).and_then(|_| tty.flush()).is_ok();
+    let sent = tty.write_all(request).and_then(|_| tty.flush()).is_ok();
     let deadline = std::time::Instant::now() + timeout;
-    while ok {
+    if sent {
+        read_until_da1(&mut tty, &mut reply, deadline);
+    }
+    unsafe { libc::tcsetattr(fd, libc::TCSANOW, &saved) };
+    Some(String::from_utf8_lossy(&reply).into_owned())
+}
+
+/// Reads terminal replies into `reply` until a DA1 answer, EOF or `deadline`.
+fn read_until_da1(tty: &mut std::fs::File, reply: &mut Vec<u8>, deadline: std::time::Instant) {
+    use std::io::Read;
+    use std::os::fd::AsRawFd;
+
+    let fd = tty.as_raw_fd();
+    loop {
         let left = deadline.saturating_duration_since(std::time::Instant::now());
         if left.is_zero() {
-            break;
+            return;
         }
         let mut pfd = libc::pollfd {
             fd,
@@ -297,17 +310,17 @@ fn query_tty(request: &[u8], timeout: Duration) -> Option<String> {
         };
         // SAFETY: one valid pollfd.
         if unsafe { libc::poll(&mut pfd, 1, left.as_millis().max(1) as i32) } <= 0 {
-            break;
+            return;
         }
         let mut buf = [0u8; 256];
-        let Ok(n) = tty.read(&mut buf) else { break };
-        reply.extend_from_slice(&buf[..n]);
-        if da1_done(&reply) {
-            break;
+        match tty.read(&mut buf) {
+            Ok(0) | Err(_) => return,
+            Ok(n) => reply.extend_from_slice(&buf[..n]),
+        }
+        if da1_done(reply) {
+            return;
         }
     }
-    unsafe { libc::tcsetattr(fd, libc::TCSANOW, &saved) };
-    Some(String::from_utf8_lossy(&reply).into_owned())
 }
 
 fn da1_done(reply: &[u8]) -> bool {

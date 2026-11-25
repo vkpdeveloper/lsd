@@ -90,6 +90,16 @@ mod freedesktop {
         Ok(Path::new(&home).join(".local/share"))
     }
 
+    /// Now, in local time, as the spec's `DeletionDate` wants it.
+    fn deletion_date() -> io::Result<String> {
+        let t = crate::fmt::Local::at(std::time::SystemTime::now())
+            .ok_or_else(|| io::Error::other("The local time is unknown."))?;
+        Ok(format!(
+            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
+            t.year, t.month, t.day, t.hour, t.minute, t.second
+        ))
+    }
+
     /// Moves `path` into the right trash, writing its .trashinfo file first.
     pub fn trash(path: &Path, data_home: &Path) -> io::Result<PathBuf> {
         let meta = fs::symlink_metadata(path)?;
@@ -115,7 +125,7 @@ mod freedesktop {
         let entry = format!(
             "[Trash Info]\nPath={}\nDeletionDate={}\n",
             percent_encode(stored.as_os_str().as_bytes()),
-            chrono::Local::now().format("%Y-%m-%dT%H:%M:%S"),
+            deletion_date()?,
         );
 
         let (stem, ext) = split_name(name, meta.is_dir());
@@ -235,7 +245,10 @@ mod freedesktop {
             assert_eq!(lines[1], expected_path);
             assert!(lines[1].ends_with("/old%20notes.txt"));
             let date = lines[2].strip_prefix("DeletionDate=").unwrap();
-            assert!(chrono::NaiveDateTime::parse_from_str(date, "%Y-%m-%dT%H:%M:%S").is_ok());
+            let shape = date
+                .bytes()
+                .map(|b| if b.is_ascii_digit() { b'0' } else { b });
+            assert!(shape.eq(*b"0000-00-00T00:00:00"), "{date}");
 
             // A second item with the same name gets the next free name.
             fs::write(&item, "second").unwrap();

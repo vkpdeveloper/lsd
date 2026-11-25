@@ -1,10 +1,10 @@
 //! Finder-style text: sizes, dates, two-line icon labels, middle ellipsis, and
 //! OSC 8 links. Shared by the inline views and the browser.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 use std::time::{Duration, SystemTime};
 
-use chrono::{DateTime, Local};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 /// Finder uses decimal units: 1 KB = 1000 bytes.
@@ -22,16 +22,77 @@ pub fn size(bytes: u64) -> String {
 
 /// "Today, 10:41 PM", "Yesterday, 9:03 AM", otherwise "26 Nov 2026, 10:41 PM".
 pub fn date(t: SystemTime) -> String {
-    let t: DateTime<Local> = t.into();
-    let today = Local::now().date_naive();
-    let day = t.date_naive();
-    let time = t.format("%-I:%M %p");
-    if day == today {
-        format!("Today, {time}")
-    } else if today.pred_opt() == Some(day) {
-        format!("Yesterday, {time}")
-    } else {
-        format!("{}, {time}", t.format("%-d %b %Y"))
+    let (Some(t), Some(now)) = (Local::at(t), Local::at(SystemTime::now())) else {
+        return "--".into();
+    };
+    label(t, now)
+}
+
+fn label(t: Local, now: Local) -> String {
+    let hour = match t.hour % 12 {
+        0 => 12,
+        h => h,
+    };
+    let half = if t.hour < 12 { "AM" } else { "PM" };
+    let time = format!("{hour}:{:02} {half}", t.minute);
+    match now.day_number() - t.day_number() {
+        0 => format!("Today, {time}"),
+        1 => format!("Yesterday, {time}"),
+        _ => {
+            const MONTHS: [&str; 12] = [
+                "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+            ];
+            let month = MONTHS[usize::from(t.month - 1)];
+            format!("{} {month} {}, {time}", t.day, t.year)
+        }
+    }
+}
+
+/// Wall-clock time in the local time zone, from the C library. chrono's
+/// time zone lookup links CoreFoundation on macOS, which costs every run
+/// about 1 ms before lsd draws anything.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Local {
+    pub year: i64,
+    /// 1 to 12.
+    pub month: u8,
+    pub day: u8,
+    pub hour: u8,
+    pub minute: u8,
+    pub second: u8,
+}
+
+impl Local {
+    pub fn at(t: SystemTime) -> Option<Local> {
+        let secs = match t.duration_since(SystemTime::UNIX_EPOCH) {
+            Ok(d) => d.as_secs() as libc::time_t,
+            Err(e) => -(e.duration().as_secs() as libc::time_t),
+        };
+        // SAFETY: tm is plain old data, and localtime_r only writes into it.
+        let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+        if unsafe { libc::localtime_r(&secs, &mut tm) }.is_null() {
+            return None;
+        }
+        Some(Local {
+            year: i64::from(tm.tm_year) + 1900,
+            month: (tm.tm_mon + 1) as u8,
+            day: tm.tm_mday as u8,
+            hour: tm.tm_hour as u8,
+            minute: tm.tm_min as u8,
+            second: tm.tm_sec as u8,
+        })
+    }
+
+    /// Days since 1970-01-01 on the calendar (Howard Hinnant's
+    /// days_from_civil), so "yesterday" is right across DST changes.
+    fn day_number(self) -> i64 {
+        let (m, d) = (i64::from(self.month), i64::from(self.day));
+        let y = if m <= 2 { self.year - 1 } else { self.year };
+        let era = y.div_euclid(400);
+        let yoe = y - era * 400;
+        let doy = (153 * ((m + 9) % 12) + 2) / 5 + d - 1;
+        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        era * 146_097 + doe - 719_468
     }
 }
 
@@ -135,10 +196,21 @@ pub fn center(s: &str, w: usize) -> String {
     format!("{}{s}{}", " ".repeat(left), " ".repeat(w - sw - left))
 }
 
-/// `file://host/path` with percent-encoding, for OSC 8 links.
+/// `file://host/path` with percent-encoding, for OSC 8 links. Relative paths
+/// are made absolute, or clicking `./notes.txt` would open nothing.
 pub fn file_url(path: &Path) -> String {
+    static HOST: LazyLock<String> = LazyLock::new(hostname);
+    static CWD: LazyLock<Option<PathBuf>> = LazyLock::new(|| std::env::current_dir().ok());
+    let joined;
+    let path = match &*CWD {
+        Some(cwd) if path.is_relative() => {
+            joined = cwd.join(path.strip_prefix(".").unwrap_or(path));
+            &joined
+        }
+        _ => path,
+    };
     let mut url = String::from("file://");
-    url.push_str(&hostname());
+    url.push_str(&HOST);
     for b in path.as_os_str().as_encoded_bytes() {
         match b {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'-' | b'_' | b'.' | b'~' => {
@@ -171,6 +243,41 @@ fn hostname() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn links_point_at_absolute_paths() {
+        let cwd = std::env::current_dir().unwrap();
+        let url = file_url(Path::new("./my notes.txt"));
+        assert!(
+            url.ends_with(&format!("{}/my%20notes.txt", cwd.display())),
+            "{url}"
+        );
+        assert!(file_url(Path::new("/tmp/x")).ends_with("/tmp/x"));
+    }
+
+    #[test]
+    fn dates_read_like_finder() {
+        let at = |year, month, day, hour, minute| Local {
+            year,
+            month,
+            day,
+            hour,
+            minute,
+            second: 0,
+        };
+        let now = at(2026, 3, 1, 9, 0);
+        assert_eq!(label(at(2026, 3, 1, 0, 5), now), "Today, 12:05 AM");
+        // Across a month end, in a leap-free year.
+        assert_eq!(label(at(2026, 2, 28, 12, 30), now), "Yesterday, 12:30 PM");
+        assert_eq!(
+            label(at(2025, 12, 31, 23, 59), now),
+            "31 Dec 2025, 11:59 PM"
+        );
+        assert_eq!(
+            label(at(2024, 2, 29, 9, 0), at(2024, 3, 1, 9, 0)),
+            "Yesterday, 9:00 AM"
+        );
+    }
 
     #[test]
     fn labels_wrap_like_finder() {

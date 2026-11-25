@@ -21,6 +21,13 @@ libc = "0.2"
 ratatui = "0.30"
 unicode-width = "0.2"
 
+# The freedesktop thumbnail cache names files by the MD5 of their URI.
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+md5 = "0.8"
+
+[dev-dependencies]
+md5 = "0.8"
+
 [profile.release]
 lto = "fat"
 codegen-units = 1

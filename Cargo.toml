@@ -19,6 +19,9 @@ clap = { version = "4.5", features = ["derive"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff"] }
 libc = "0.2"
 ratatui = "0.30"
+serde_json = { version = "1", features = ["preserve_order"] }
+syntect = { version = "5.3", default-features = false, features = ["parsing", "regex-onig"] }
+two-face = { version = "0.5", default-features = false, features = ["syntect-onig"] }
 unicode-width = "0.2"
 
 [profile.release]

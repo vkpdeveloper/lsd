@@ -1,4 +1,5 @@
 mod diacritics;
+mod doc;
 mod entry;
 mod fmt;
 mod fsops;
@@ -6,6 +7,7 @@ mod glyph;
 mod halfblock;
 mod iterm;
 mod kitty;
+mod leaf;
 mod meta;
 mod places;
 mod term;
@@ -213,9 +215,12 @@ fn list(cli: &Cli, term: &Term) -> io::Result<bool> {
         out.flush()?;
         return Ok(ok);
     }
-    // `lsd photo.jpg` shows the file's card, a bigger picture with its details.
+    // `lsd notes.md` shows the document itself, like Quick Look. Other files,
+    // or any file with -g, show their card: a bigger picture with details.
     if single_file && ctx.term.tty && !(cli.list || cli.one || cli.tree) {
-        view::gallery::render(&ctx, &files, &mut out)?;
+        if cli.gallery || !view::quicklook::render(&ctx, &files[0], &mut out)? {
+            view::gallery::render(&ctx, &files, &mut out)?;
+        }
         out.flush()?;
         return Ok(ok);
     }

@@ -6,7 +6,7 @@ use std::time::SystemTime;
 
 /// One file system item, with the metadata every view needs. Built from a
 /// single `lstat` (plus a `stat` for symlinks) so listing stays cheap.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Entry {
     pub name: String,
     pub path: PathBuf,

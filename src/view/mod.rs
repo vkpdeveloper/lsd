@@ -9,6 +9,7 @@ pub mod gallery;
 pub mod icons;
 pub mod list;
 pub mod plain;
+pub mod quicklook;
 pub mod tree;
 
 use std::collections::HashSet;

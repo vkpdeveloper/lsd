@@ -20,6 +20,9 @@ static THEME: LazyLock<Theme> = LazyLock::new(palette_theme);
 /// Past this many lines the rest is shown uncolored; highlighting is the slow
 /// part of showing a big file.
 const MAX_HIGHLIGHT_LINES: usize = 5000;
+/// A line longer than this ends the coloring too. On one, as in minified code,
+/// syntect can take minutes, and it would not fit on a screen anyway.
+const MAX_HIGHLIGHT_LINE: usize = 4096;
 
 /// syntect colors carry no palette, so the theme encodes one in `a`:
 /// 0 means palette entry `r`, `DIM_ALPHA` means dimmed default text, anything
@@ -43,14 +46,18 @@ pub fn syntax_for_path(path: &Path, first_line: &str) -> &'static SyntaxReferenc
 /// Colors `src` line by line, as the lines are taken. Tabs become four spaces.
 pub fn highlight<'a>(src: &'a str, syntax: &SyntaxReference) -> impl Iterator<Item = Line> + 'a {
     let mut h = HighlightLines::new(syntax, &THEME);
+    let mut plain = false;
     LinesWithEndings::from(src)
         .enumerate()
         .map(move |(n, raw)| {
             let mut line = Line::new();
-            let ranges = if n < MAX_HIGHLIGHT_LINES {
-                h.highlight_line(raw, &SYNTAXES).ok()
-            } else {
+            if n >= MAX_HIGHLIGHT_LINES || raw.len() > MAX_HIGHLIGHT_LINE {
+                plain = true;
+            }
+            let ranges = if plain {
                 None
+            } else {
+                h.highlight_line(raw, &SYNTAXES).ok()
             };
             match ranges {
                 Some(ranges) => {

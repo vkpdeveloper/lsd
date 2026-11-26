@@ -9,6 +9,7 @@ pub enum Icons {
     Emoji,
     /// Nerd Font glyphs, for fonts patched with them.
     Nerd,
+    /// Names only.
     None,
 }
 

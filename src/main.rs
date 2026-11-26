@@ -20,7 +20,7 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 
 use entry::{Entry, Sort, SortKey};
 use glyph::Icons;
@@ -56,7 +56,7 @@ struct Cli {
     one: bool,
 
     /// With --tree: how many levels deep to go.
-    #[arg(short = 'L', long, value_name = "N")]
+    #[arg(short = 'L', long, value_name = "N", value_hint = clap::ValueHint::Other)]
     depth: Option<usize>,
 
     /// Show hidden files.
@@ -98,7 +98,65 @@ struct Cli {
     /// With -i: write the final folder to this file on quit (for a `cd` wrapper).
     #[arg(long, value_name = "FILE")]
     cwd_file: Option<PathBuf>,
+
+    /// Print the tab completion script for SHELL.
+    #[arg(long, value_enum, value_name = "SHELL", exclusive = true)]
+    completions: Option<Shell>,
 }
+
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+enum Shell {
+    Bash,
+    Zsh,
+    Fish,
+    Elvish,
+    Powershell,
+    Nushell,
+}
+
+/// Set by the elvish and PowerShell scripts when they ask lsd what Tab offers.
+const COMPLETE_VAR: &str = "LSD_COMPLETE";
+
+/// The tab completion script for `shell`. Built in memory so printing it can
+/// stop early (`| head`) without a panic: the generators panic when a write
+/// fails.
+fn completions(shell: Shell) -> io::Result<Vec<u8>> {
+    use clap_complete::env::{self, EnvCompleter};
+    use clap_complete::{Shell as Std, generate};
+    let mut cmd = Cli::command();
+    let mut script = Vec::new();
+    match shell {
+        Shell::Bash => {
+            generate(Std::Bash, &mut cmd, "lsd", &mut script);
+            script.extend_from_slice(BASH_FILES_FIRST.as_bytes());
+        }
+        Shell::Zsh => generate(Std::Zsh, &mut cmd, "lsd", &mut script),
+        Shell::Fish => generate(Std::Fish, &mut cmd, "lsd", &mut script),
+        Shell::Nushell => generate(clap_complete_nushell::Nushell, &mut cmd, "lsd", &mut script),
+        // clap's fixed scripts for these offer flags only, so these ask lsd on
+        // each Tab instead, and it offers values and paths too.
+        Shell::Elvish => {
+            env::Elvish.write_registration(COMPLETE_VAR, "lsd", "lsd", "lsd", &mut script)?
+        }
+        Shell::Powershell => {
+            env::Powershell.write_registration(COMPLETE_VAR, "lsd", "lsd", "lsd", &mut script)?
+        }
+    }
+    Ok(script)
+}
+
+/// The generated bash function offers every flag for an empty word. lsd's
+/// words are nearly always paths, so like `ls` it offers files there, and
+/// flags once the word starts with a dash.
+const BASH_FILES_FIRST: &str = r#"
+_lsd_files_first() {
+    _lsd "$@"
+    if [[ "${COMP_WORDS[COMP_CWORD]}" != -* && "${COMPREPLY[0]}" == -* ]]; then
+        COMPREPLY=()
+    fi
+}
+complete -F _lsd_files_first -o bashdefault -o default lsd
+"#;
 
 impl Cli {
     fn sort(&self) -> Sort {
@@ -120,7 +178,21 @@ impl Cli {
 }
 
 fn main() -> ExitCode {
+    // Answers an elvish or PowerShell Tab, then exits. Otherwise does nothing.
+    clap_complete::CompleteEnv::with_factory(Cli::command)
+        .var(COMPLETE_VAR)
+        .complete();
     let cli = Cli::parse();
+    // Before anything looks at the terminal: shells run this at startup.
+    if let Some(shell) = cli.completions {
+        return match completions(shell).and_then(|script| io::stdout().write_all(&script)) {
+            Err(err) if err.kind() != io::ErrorKind::BrokenPipe => {
+                eprintln!("lsd: {err}");
+                ExitCode::FAILURE
+            }
+            _ => ExitCode::SUCCESS,
+        };
+    }
     let term = Term::detect();
     if term.tmux_hint {
         eprintln!("{}", term::TMUX_HINT);
@@ -264,5 +336,22 @@ fn show(cli: &Cli, ctx: &Ctx, entries: &[Entry], out: &mut impl Write) -> io::Re
         view::gallery::render(ctx, entries, out)
     } else {
         view::icons::render(ctx, entries, out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cli_is_well_formed() {
+        Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn bash_wrapper_calls_the_generated_function() {
+        // A rename in clap_complete would leave the wrapper calling nothing.
+        let script = String::from_utf8(completions(Shell::Bash).unwrap()).unwrap();
+        assert!(script.contains("_lsd() {"));
     }
 }

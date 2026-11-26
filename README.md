@@ -9,8 +9,9 @@ Quick Look and file operations.
   JSON preview as colored text.
 - Icons, list, columns and gallery views, Finder-style dates, sizes and kinds.
 - Matches your terminal's colors on its own, light or dark.
-- PDFs, EPUBs, Markdown and office files open in [Leaf](https://github.com/DeepanshuMishraa/leaf),
-  right in the terminal. Quit Leaf and you are back where you were.
+- PDFs, EPUBs, Markdown, office files and tables open in
+  [Leaf](https://github.com/DeepanshuMishraa/leaf), right in the terminal.
+  Quit Leaf and you are back where you were. See [Leaf](#leaf) for the list.
 - Fast: a folder of pictures lists in under 10 ms, and the browser builds
   a frame in well under a millisecond.
 
@@ -98,6 +99,30 @@ list inside lsd.
 
 The mouse works too: click, double click, scroll, and click the toolbar.
 
+## Leaf
+
+lsd opens documents with [Leaf](https://github.com/DeepanshuMishraa/leaf), a
+terminal reader by Deepanshu Mishra, shared under the MIT license. Leaf does
+the reading, and it does it well. Thank you, Deepanshu.
+
+lsd still draws everything else itself: the listing, the thumbnails, the
+preview pane and Quick Look. Leaf starts only when you open a file. In the
+browser, `Enter` on one of these files opens it in Leaf, in the same terminal:
+
+| Files | Extensions |
+| --- | --- |
+| PDF | `.pdf` |
+| Books | `.epub` |
+| Markdown | `.md` `.markdown` `.mdown` `.mkd` |
+| Word, PowerPoint, Excel | `.docx` `.pptx` `.xlsx` |
+| OpenDocument spreadsheets | `.ods` |
+| Tables | `.csv` `.tsv` |
+
+Press `Esc` in Leaf to come back to lsd. `gx` opens any of these in
+its usual app instead, and so does `Enter` when Leaf isn't installed.
+Everything else, including pictures, videos, code and older `.doc`, `.xls`
+and `.ppt` files, opens in its usual app.
+
 ## Terminals
 
 | Terminal | Pictures |
@@ -118,11 +143,11 @@ set -g allow-passthrough on
 ## Credits
 
 - [Leaf](https://github.com/DeepanshuMishraa/leaf) by Deepanshu Mishra (MIT)
-  reads documents for lsd.
+  reads documents for lsd. See [Leaf](#leaf) for which ones.
 - Code coloring uses the syntax definitions from
   [bat](https://github.com/sharkdp/bat), through
   [two-face](https://github.com/CosmicHorrorDev/two-face).
 
 ## License
 
-MIT
+MIT. See [LICENSE](LICENSE).

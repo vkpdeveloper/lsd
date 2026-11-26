@@ -49,8 +49,8 @@ install_leaf() {
   done
   say ""
   say "Installing Leaf, a free and open source terminal reader by Deepanshu Mishra"
-  say "(https://github.com/DeepanshuMishraa/leaf). lsd opens PDFs, books, Markdown"
-  say "and office files in it."
+  say "(https://github.com/DeepanshuMishraa/leaf). lsd opens PDF, EPUB, Markdown,"
+  say "Word, PowerPoint, Excel, ODS, CSV and TSV files in it."
   say ""
   # Saved first, so a failed download is caught instead of running nothing.
   script=$(mktemp 2>/dev/null || mktemp -t leaf-install)

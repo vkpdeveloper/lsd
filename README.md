@@ -5,7 +5,8 @@ your terminal. `lsd -i` opens a full browser with vim keys, a preview pane,
 Quick Look and file operations.
 
 - Thumbnails for pictures, videos, PDFs, book covers and app icons, from
-  QuickLook on macOS and the freedesktop thumbnailers on Linux.
+  QuickLook on macOS and the freedesktop thumbnailers on Linux. Code and
+  JSON preview as colored text.
 - Icons, list, columns and gallery views, Finder-style dates, sizes and kinds.
 - Matches your terminal's colors on its own, light or dark.
 - PDFs, EPUBs, Markdown and office files open in [Leaf](https://github.com/DeepanshuMishraa/leaf),

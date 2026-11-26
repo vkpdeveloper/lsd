@@ -59,6 +59,35 @@ lsdcd() {
 }
 ```
 
+## Tab completion
+
+`lsd --completions <shell>` prints the completion script for bash, zsh, fish,
+elvish, PowerShell or Nushell. Set it up once for your shell:
+
+```sh
+# bash: add to ~/.bashrc
+eval "$(lsd --completions bash)"
+
+# zsh: add to ~/.zshrc, after compinit (with oh-my-zsh, after oh-my-zsh.sh)
+source <(lsd --completions zsh)
+
+# fish: run once
+lsd --completions fish > ~/.config/fish/completions/lsd.fish
+
+# elvish: add to ~/.config/elvish/rc.elv
+eval (lsd --completions elvish | slurp)
+
+# PowerShell: add to $PROFILE
+lsd --completions powershell | Out-String | Invoke-Expression
+
+# Nushell: run once
+mkdir ($nu.data-dir | path join "vendor/autoload")
+lsd --completions nushell | save -f ($nu.data-dir | path join "vendor/autoload/lsd.nu")
+```
+
+Tab then completes flags, their values (`--sort`, `--size`, `--icons`) and
+paths. After updating lsd, run the fish or Nushell lines again.
+
 ## Browser keys
 
 The browser reads keys like vim. Counts work with moves and commands (`5j`,

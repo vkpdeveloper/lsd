@@ -72,6 +72,7 @@ main() {
   install_leaf
   say ""
   say "Done. Run lsd to list a folder, or lsd -i to browse it."
+  say "For tab completion, see https://github.com/vkpdeveloper/lsd#tab-completion"
 }
 
 main "$@"

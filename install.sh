@@ -96,7 +96,7 @@ install_from_source() {
   cargo install --locked --git "$REPO" lsd
 }
 
-install_leaf() {
+install_leaf() { # lsd's bin dir
   for leaf in "$(command -v leaf 2>/dev/null || true)" "$HOME/.local/bin/leaf"; do
     if [ -n "$leaf" ] && [ -x "$leaf" ]; then
       say "Leaf is already installed at $leaf."
@@ -109,7 +109,9 @@ install_leaf() {
   say "Word, PowerPoint, Excel, ODS, CSV and TSV files in it."
   say ""
   # Saved first, so a failed download is caught instead of running nothing.
-  if fetch "$LEAF_INSTALLER" >"$TMP/leaf-install.sh" && sh "$TMP/leaf-install.sh"; then
+  # lsd's folder goes on its PATH, so when Leaf lands there too it doesn't
+  # repeat the PATH advice check_path gives at the end.
+  if fetch "$LEAF_INSTALLER" >"$TMP/leaf-install.sh" && PATH="$1:$PATH" sh "$TMP/leaf-install.sh"; then
     return 0
   fi
   say ""
@@ -153,7 +155,7 @@ main() {
     install_from_source
     bin_dir=${CARGO_HOME:-$HOME/.cargo}/bin
   fi
-  install_leaf
+  install_leaf "$bin_dir"
   check_path "$bin_dir"
   say ""
   say "Done. Run lsd to list a folder, or lsd -i to browse it."

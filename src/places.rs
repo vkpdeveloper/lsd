@@ -86,7 +86,9 @@ pub fn free_space(path: &Path) -> Option<u64> {
     #[cfg(not(target_os = "macos"))]
     #[allow(clippy::useless_conversion)] // The fields are only 32-bit on 32-bit targets.
     {
-        let mut st = libc::statvfs::default();
+        // Zeroed rather than Default, which musl's libc bindings don't have.
+        // SAFETY: statvfs is plain old data, so all zeros is a valid value.
+        let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
         // SAFETY: path is NUL-terminated and st is a valid statvfs to write into.
         (unsafe { libc::statvfs(path.as_ptr(), &mut st) } == 0)
             .then(|| u64::from(st.f_bavail) * u64::from(st.f_frsize))

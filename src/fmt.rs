@@ -65,9 +65,11 @@ pub struct Local {
 impl Local {
     pub fn at(t: SystemTime) -> Option<Local> {
         let secs = match t.duration_since(SystemTime::UNIX_EPOCH) {
-            Ok(d) => d.as_secs() as libc::time_t,
-            Err(e) => -(e.duration().as_secs() as libc::time_t),
+            Ok(d) => d.as_secs() as i64,
+            Err(e) => -(e.duration().as_secs() as i64),
         };
+        // Cast with `as _`: naming libc::time_t is a deprecation warning on musl.
+        let secs = secs as _;
         // SAFETY: tm is plain old data, and localtime_r only writes into it.
         let mut tm: libc::tm = unsafe { std::mem::zeroed() };
         if unsafe { libc::localtime_r(&secs, &mut tm) }.is_null() {

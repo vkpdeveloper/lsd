@@ -332,9 +332,12 @@ fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
 #[cfg(not(target_os = "macos"))]
 fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
     let (from_c, to_c) = (c_path(from)?, c_path(to)?);
+    // The raw syscall, since musl (which the release builds link) has no
+    // renameat2 wrapper, and neither does glibc before 2.28.
     // SAFETY: both are valid NUL-terminated paths, relative to the working directory.
     let status = unsafe {
-        libc::renameat2(
+        libc::syscall(
+            libc::SYS_renameat2,
             libc::AT_FDCWD,
             from_c.as_ptr(),
             libc::AT_FDCWD,

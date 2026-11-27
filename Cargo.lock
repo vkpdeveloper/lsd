@@ -232,28 +232,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "clap_complete"
-version = "4.6.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a35200383f20018d41c14d1ab19c1727c697f544492143f7d93aa39f0187848"
-dependencies = [
- "clap",
- "clap_lex",
- "is_executable",
- "shlex",
-]
-
-[[package]]
-name = "clap_complete_nushell"
-version = "4.6.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2572c7b66e6c875ce4f4b57b852a3238e3f6dadd209798c714d9408a4f892131"
-dependencies = [
- "clap",
- "clap_complete",
-]
-
-[[package]]
 name = "clap_derive"
 version = "4.6.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -758,15 +736,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "is_executable"
-version = "1.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82cb6a9f675da968c63b6208c641b9dca58fc0133ae53375736b1767b0cab8bd"
-dependencies = [
- "windows-sys",
-]
-
-[[package]]
 name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -885,8 +854,6 @@ dependencies = [
  "anyhow",
  "base64",
  "clap",
- "clap_complete",
- "clap_complete_nushell",
  "image",
  "libc",
  "md5",

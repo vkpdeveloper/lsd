@@ -44,8 +44,8 @@ To uninstall lsd and its thumbnail cache, run `lsd --uninstall`, or:
 curl -fsSL https://raw.githubusercontent.com/vkpdeveloper/lsd/main/uninstall.sh | sh
 ```
 
-Either way, it takes out the tab completion `lsd --completions` set up, leaves
-Leaf and the rest of your shell config alone, and tells you what's left.
+Either way, it leaves Leaf and your shell config alone, and tells you what's
+left.
 
 Or by hand: download lsd for your machine from the
 [latest release](https://github.com/vkpdeveloper/lsd/releases/latest), or
@@ -82,41 +82,6 @@ lsdcd() {
   lsd -i --cwd-file "$file" "$@" && cd "$(cat "$file")"
   rm -f "$file"
 }
-```
-
-## Tab completion
-
-Run this once in your shell, and Tab completes flags, their values (`--sort`,
-`--size`, `--icons`) and paths in every new terminal:
-
-```sh
-lsd --completions
-```
-
-It works in bash, zsh, fish, elvish, PowerShell and Nushell, and sets up the
-shell you run it from. `lsd --uninstall` takes it out again.
-
-`lsd --completions <shell>` prints the script itself, to set it up by hand:
-
-```sh
-# bash: add to ~/.bashrc
-eval "$(lsd --completions bash)"
-
-# zsh: add to ~/.zshrc, after compinit (with oh-my-zsh, after oh-my-zsh.sh)
-source <(lsd --completions zsh)
-
-# fish: run once
-echo 'lsd --completions fish | source' > ~/.config/fish/completions/lsd.fish
-
-# elvish: add to ~/.config/elvish/rc.elv
-eval (lsd --completions elvish | slurp)
-
-# PowerShell: add to $PROFILE
-lsd --completions powershell | Out-String | Invoke-Expression
-
-# Nushell: run once, and again after updating lsd
-mkdir ($nu.data-dir | path join "vendor/autoload")
-lsd --completions nushell | save -f ($nu.data-dir | path join "vendor/autoload/lsd.nu")
 ```
 
 ## Browser keys

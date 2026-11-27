@@ -10,8 +10,8 @@
 # $LSD_INSTALL_DIR), from cargo's bin folder and from anywhere else on the
 # PATH, but only a binary that really is this lsd: LSDeluxe also installs a
 # command called lsd, and that one stays. It takes out the tab completion
-# `lsd --completions` set up. Leaf, its library and the rest of your shell
-# config are left alone; it says where lsd still comes up.
+# lsd 0.1.3 and 0.1.4 could set up. Leaf, its library and the rest of your
+# shell config are left alone; it says where lsd still comes up.
 #
 # Everything runs inside main(), called on the last line, so a download cut
 # short never runs half a script.
@@ -20,7 +20,7 @@ set -eu
 
 GREEN="" YELLOW="" DIM="" RESET=""
 CONFIG=${XDG_CONFIG_HOME:-$HOME/.config}
-# Around what `lsd --completions` adds to a shell's config.
+# Around what `lsd --completions` added to a shell's config in 0.1.3 and 0.1.4.
 BEGIN="# >>> lsd tab completion >>>"
 END="# <<< lsd tab completion <<<"
 
@@ -82,7 +82,7 @@ remove_cache() {
   step "Removed the thumbnail cache at $(home "$cache")${size:+ ($size)}"
 }
 
-# The shell configs lsd --completions may write to, one per line.
+# The shell configs lsd --completions could write to, one per line.
 shell_configs() {
   printf '%s\n' "${ZDOTDIR:-$HOME}/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile" \
     "$HOME/.profile" "$CONFIG/fish/config.fish" "$CONFIG/elvish/rc.elv" \

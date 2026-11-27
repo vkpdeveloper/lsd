@@ -15,9 +15,6 @@ path = "src/main.rs"
 anyhow = "1"
 base64 = "0.22"
 clap = { version = "4.5", features = ["derive"] }
-# Pinned: elvish and PowerShell completions use its unstable runtime engine.
-clap_complete = { version = "=4.6.12", features = ["unstable-dynamic"] }
-clap_complete_nushell = "4.6"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff"] }
 libc = "0.2"
 ratatui = "0.30"

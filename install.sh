@@ -407,7 +407,6 @@ main() {
   check_path "$bin_dir"
   say ""
   say "  Done. Run ${BOLD}lsd${RESET} to list a folder, or ${BOLD}lsd -i${RESET} to browse it."
-  say "  ${DIM}For tab completion, run lsd --completions${RESET}"
 }
 
 main "$@"

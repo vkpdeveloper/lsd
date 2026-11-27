@@ -167,6 +167,8 @@ picture_protocol() {
   names=$(printf '%s %s %s' "${TERM:-}" "${TERM_PROGRAM:-}" "${LC_TERMINAL:-}" | tr '[:upper:]' '[:lower:]')
   case "$names" in
     *kitty* | *ghostty*) echo kitty ;;
+    # Rex draws with Ghostty's engine.
+    *" rex "*) echo kitty ;;
     *iterm* | *wezterm*) echo iterm ;;
     *)
       if [ -n "${KITTY_WINDOW_ID:-}${GHOSTTY_RESOURCES_DIR:-}" ]; then

@@ -187,7 +187,7 @@ and `.ppt` files, opens in its usual app.
 
 | Terminal | Pictures |
 | --- | --- |
-| Ghostty, kitty | kitty graphics |
+| Ghostty, kitty, Rex | kitty graphics |
 | WezTerm, iTerm2 | iTerm2 images |
 | Alacritty, Terminal.app, others | Colored half blocks and emoji icons |
 

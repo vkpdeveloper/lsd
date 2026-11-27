@@ -12,7 +12,7 @@ use crate::kitty::{Graphics, IdMode, Transfer};
 /// How pictures reach the screen.
 #[derive(Clone, Copy, Debug)]
 pub enum Protocol {
-    /// kitty graphics with Unicode placeholders: kitty and Ghostty. Images are
+    /// kitty graphics with Unicode placeholders: kitty, Ghostty and Rex. Images are
     /// text, so they scroll, clear and redraw like text, including in tmux.
     Kitty(Graphics),
     /// iTerm2 inline images: iTerm2 and WezTerm. Images sit at the cursor.
@@ -124,7 +124,12 @@ fn outer_from_env() -> Outer {
             return found;
         }
     }
-    if env::var_os("KITTY_WINDOW_ID").is_some() || env::var_os("GHOSTTY_RESOURCES_DIR").is_some() {
+    // Rex draws with Ghostty's engine. Its name is too short to look for
+    // inside other names, so it has to match exactly.
+    if var("TERM_PROGRAM") == "rex"
+        || env::var_os("KITTY_WINDOW_ID").is_some()
+        || env::var_os("GHOSTTY_RESOURCES_DIR").is_some()
+    {
         Outer::Kitty
     } else if env::var_os("WEZTERM_EXECUTABLE").is_some()
         || env::var_os("ITERM_SESSION_ID").is_some()

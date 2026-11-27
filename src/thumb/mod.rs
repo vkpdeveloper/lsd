@@ -9,8 +9,9 @@
 //!   size and mode: images, video, PDF, EPUB covers (read by lsd on every
 //!   platform, since QuickLook only draws the Books icon), and other formats
 //!   QuickLook renders
-//!   (office and iWork documents, fonts, audio, ...), plus `.app` bundles and
-//!   the special folders (Downloads, Applications, ...) whose icons differ.
+//!   (office and iWork documents, fonts, audio, ...), plus the folders whose
+//!   Finder icon differs: `.app` bundles, special folders (Downloads,
+//!   Applications, ...), volumes, home and custom icons.
 //! - Everything else shares one icon per type: folders, each extension,
 //!   extensionless files, executables. A 5000-entry node_modules costs a
 //!   handful of renders, not 5000.
@@ -260,7 +261,7 @@ impl Thumbnailer {
         let class = if icon_only {
             None
         } else {
-            content(entry, &ext, px, mode)
+            content(entry, &src, &ext, px, mode)
         };
         if let Some(class) = class {
             let key = content_key(&src, entry, px, mode);
@@ -390,12 +391,10 @@ const PACKAGES: &[&str] = &[
 ];
 
 /// The rule from the module docs: Some when `entry` gets its own thumbnail.
-fn content(entry: &Entry, ext: &str, px: u32, mode: Mode) -> Option<Class> {
+fn content(entry: &Entry, src: &Path, ext: &str, px: u32, mode: Mode) -> Option<Class> {
     let class = class_of(ext);
     if entry.is_dir {
-        if cfg!(target_os = "macos")
-            && (ext == "app" || SPECIAL_FOLDERS.contains(&entry.name.as_str()))
-        {
+        if cfg!(target_os = "macos") && own_icon(src, &entry.name, ext) {
             return Some(Class::Other);
         }
         // Document packages such as `.pages` or `.rtfd` follow the file rules.
@@ -417,6 +416,18 @@ fn content(entry: &Entry, ext: &str, px: u32, mode: Mode) -> Option<Class> {
         }
         (Mode::Icon, Class::Other) => (px > SMALL).then_some(class),
     }
+}
+
+/// Folders Finder draws with an icon of their own rather than the generic
+/// folder: apps, the special folders, volumes, the home folder, and folders
+/// with a custom icon (stored in an `Icon\r` file inside). Costs one stat, so
+/// plain folders keep sharing one icon.
+fn own_icon(src: &Path, name: &str, ext: &str) -> bool {
+    ext == "app"
+        || SPECIAL_FOLDERS.contains(&name)
+        || src.parent().is_none_or(|p| p == Path::new("/Volumes"))
+        || std::env::var_os("HOME").is_some_and(|home| src == Path::new(&home))
+        || src.join("Icon\r").exists()
 }
 
 pub(crate) fn class_of(ext: &str) -> Option<Class> {
@@ -689,6 +700,31 @@ mod tests {
         }
         // Stable across runs and toolchains: this name is on disk in users' caches.
         assert_eq!(k.file_name().unwrap(), "f6205b4c3dcfdcc3.png");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn folders_with_their_own_finder_icon_render_per_path() {
+        let dir = std::env::temp_dir().join(format!("lsd-own-icon-{}", std::process::id()));
+        let (custom, plain) = (dir.join("custom"), dir.join("plain"));
+        std::fs::create_dir_all(&custom).unwrap();
+        std::fs::create_dir_all(&plain).unwrap();
+        std::fs::write(custom.join("Icon\r"), b"").unwrap();
+        let wants = |path: &Path| {
+            let mut e = entry("x", true);
+            e.name = path.file_name().unwrap().to_string_lossy().into();
+            e.path = path.to_path_buf();
+            matches!(
+                thumbs().plan(&e, 128, Mode::Icon, false).what,
+                What::Content(_)
+            )
+        };
+        let custom_wanted = wants(&custom);
+        let plain_wanted = wants(&plain);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(custom_wanted);
+        assert!(!plain_wanted);
+        assert!(wants(Path::new("/Volumes/Backup")));
     }
 
     #[test]

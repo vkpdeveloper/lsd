@@ -2,7 +2,7 @@
 name = "lsd"
 version = "0.1.0"
 edition = "2024"
-description = "ls + display: Finder-style listing and browsing with real thumbnails, drawn with the kitty graphics protocol"
+description = "ls + display: lists files with real thumbnails, like a Finder window in your terminal, plus a vim-key browser with a preview pane and Quick Look"
 license = "MIT"
 repository = "https://github.com/vkpdeveloper/lsd"
 publish = false

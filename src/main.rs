@@ -100,12 +100,6 @@ struct Cli {
     #[arg(long, value_name = "FILE")]
     cwd_file: Option<PathBuf>,
 
-    /// Tab completion is gone, but shell configs from older versions still run
-    /// `lsd --completions zsh` and the like at startup. Print nothing for them,
-    /// rather than an error in every new terminal.
-    #[arg(long, hide = true, num_args = 0..=1, exclusive = true)]
-    completions: Option<Option<String>>,
-
     /// Update lsd to the latest release.
     #[arg(long, exclusive = true)]
     update: bool,
@@ -136,9 +130,6 @@ impl Cli {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    if cli.completions.is_some() {
-        return ExitCode::SUCCESS;
-    }
     if cli.update {
         return setup::update();
     }

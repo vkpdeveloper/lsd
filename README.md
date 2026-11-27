@@ -37,6 +37,14 @@ To put lsd somewhere else, set `LSD_INSTALL_DIR`:
 curl -fsSL https://raw.githubusercontent.com/vkpdeveloper/lsd/main/install.sh | LSD_INSTALL_DIR=~/bin sh
 ```
 
+To uninstall lsd and its thumbnail cache:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/vkpdeveloper/lsd/main/uninstall.sh | sh
+```
+
+It leaves Leaf and your shell config alone, and tells you what's left.
+
 Or by hand: download lsd for your machine from the
 [latest release](https://github.com/vkpdeveloper/lsd/releases/latest), or
 build it with [Rust](https://rustup.rs):

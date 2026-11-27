@@ -26,10 +26,20 @@ Quick Look and file operations.
 curl -fsSL https://raw.githubusercontent.com/vkpdeveloper/lsd/main/install.sh | sh
 ```
 
-This builds lsd from source, so it needs [Rust](https://rustup.rs). It also
-installs Leaf with Leaf's own installer, unless you already have it.
+It works on macOS (Apple silicon and Intel) and Linux (x86_64 and ARM, any
+distro). It downloads lsd from the latest release, checks it against its
+SHA-256 and puts it in `~/.local/bin`. It also installs Leaf with Leaf's own
+installer, unless you already have it. Run the same command again to update.
 
-Or by hand:
+To put lsd somewhere else, set `LSD_INSTALL_DIR`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/vkpdeveloper/lsd/main/install.sh | LSD_INSTALL_DIR=~/bin sh
+```
+
+Or by hand: download lsd for your machine from the
+[latest release](https://github.com/vkpdeveloper/lsd/releases/latest), or
+build it with [Rust](https://rustup.rs):
 
 ```sh
 cargo install --locked --git https://github.com/vkpdeveloper/lsd lsd

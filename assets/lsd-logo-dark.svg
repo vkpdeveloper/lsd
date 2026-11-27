@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 382 268" width="382" height="268" role="img" aria-label="lsd">
+  <!-- For dark backgrounds. lsd-logo-light.svg is the same with dark letters. -->
+  <title>lsd</title>
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFC857"/>
+      <stop offset="1" stop-color="#FF6F59"/>
+    </linearGradient>
+    <clipPath id="bowl">
+      <circle cx="278" cy="184" r="84"/>
+    </clipPath>
+  </defs>
+  <!-- The bowl of the d: a sun over two hills. -->
+  <g clip-path="url(#bowl)">
+    <rect x="194" y="100" width="168" height="168" fill="url(#sky)"/>
+    <circle cx="288.1" cy="157.1" r="21.8" fill="#FFF3C4"/>
+    <polygon points="185.6,276.4 254.5,187.4 294.8,224.3 328.4,200.8 370.4,237.8 370.4,276.4" fill="#5B7CFA"/>
+    <polygon points="185.6,276.4 241,217.6 304.9,276.4" fill="#3B4FD8"/>
+  </g>
+  <g fill="none" stroke="#F4F3EF" stroke-width="40" stroke-linecap="round">
+    <line x1="20" y1="20" x2="20" y2="248"/>
+    <path d="M160 138 C 152 126, 138 120, 120 120 C 98 120, 84 132, 84 151 C 84 193, 162 173, 162 214 C 162 235, 144 248, 120 248 C 100 248, 84 240, 76 228"/>
+    <line x1="362" y1="20" x2="362" y2="248"/>
+  </g>
+</svg>

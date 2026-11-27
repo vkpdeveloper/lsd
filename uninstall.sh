@@ -3,6 +3,9 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/vkpdeveloper/lsd/main/uninstall.sh | sh
 #
+# `lsd --uninstall` runs this same script, built into lsd, with
+# LSD_INSTALL_DIR set to the folder of the lsd that ran it.
+#
 # It removes lsd from where install.sh puts it (~/.local/bin, or
 # $LSD_INSTALL_DIR), from cargo's bin folder and from anywhere else on the
 # PATH, but only a binary that really is this lsd: LSDeluxe also installs a

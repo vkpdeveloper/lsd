@@ -644,13 +644,17 @@ mod tests {
     #[test]
     fn content_rule_depends_on_size_and_mode() {
         let t = thumbs();
-        for name in ["photo.HEIC", "clip.mov", "paper.pdf"] {
+        for name in ["photo.PNG", "book.epub"] {
             assert!(wants_content(&t, name, false, 64, Mode::Icon), "{name}");
         }
         assert!(!wants_content(&t, "report.docx", false, 64, Mode::Icon));
         assert!(!wants_content(&t, "main.ts", false, 512, Mode::Icon));
         assert!(!wants_content(&t, "notes", false, 512, Mode::Icon));
         if cfg!(target_os = "macos") {
+            // On Linux these depend on installed tools, and HEIC isn't decoded.
+            for name in ["photo.HEIC", "clip.mov", "paper.pdf"] {
+                assert!(wants_content(&t, name, false, 64, Mode::Icon), "{name}");
+            }
             assert!(wants_content(&t, "report.docx", false, 128, Mode::Icon));
             assert!(wants_content(&t, "Safari.app", true, 64, Mode::Icon));
             assert!(wants_content(&t, "Downloads", true, 64, Mode::Icon));

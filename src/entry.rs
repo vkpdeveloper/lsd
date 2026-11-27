@@ -38,6 +38,9 @@ impl Entry {
             None
         };
         let meta = followed.as_ref().unwrap_or(lmeta);
+        // A link's own permission bits mean nothing (always rwx on Linux), so a
+        // broken link mustn't read as executable.
+        let broken = is_symlink && followed.is_none();
         Entry {
             name,
             path,
@@ -46,7 +49,7 @@ impl Entry {
             size: meta.len(),
             modified: meta.modified().ok(),
             created: meta.created().ok(),
-            mode: mode_of(meta),
+            mode: if broken { 0 } else { mode_of(meta) },
         }
     }
 
@@ -170,6 +173,16 @@ fn take_number(chars: &mut std::iter::Peekable<std::str::Chars>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn broken_link_is_not_executable() {
+        let tmp = crate::fsops::tests::TempDir::new();
+        let link = tmp.path().join("link");
+        std::os::unix::fs::symlink("missing", &link).unwrap();
+        let entry = Entry::from_path(&link).unwrap();
+        assert!(entry.is_symlink);
+        assert_eq!(entry.mode & 0o111, 0);
+    }
 
     #[test]
     fn natural_order_matches_finder() {

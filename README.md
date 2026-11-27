@@ -29,8 +29,8 @@ curl -fsSL https://raw.githubusercontent.com/vkpdeveloper/lsd/main/install.sh | 
 It works on macOS (Apple silicon and Intel) and Linux (x86_64 and ARM, any
 distro). It downloads lsd from the latest release, checks it against its
 SHA-256 and puts it in `~/.local/bin`. It also installs Leaf next to it with
-Leaf's own installer, unless you already have it. Run the same command again
-to update.
+Leaf's own installer, unless you already have it. To update lsd later, run
+`lsd --update`.
 
 To put lsd somewhere else, set `LSD_INSTALL_DIR`:
 
@@ -44,7 +44,8 @@ To uninstall lsd and its thumbnail cache, run `lsd --uninstall`, or:
 curl -fsSL https://raw.githubusercontent.com/vkpdeveloper/lsd/main/uninstall.sh | sh
 ```
 
-Either way, it leaves Leaf and your shell config alone, and tells you what's left.
+Either way, it takes out the tab completion `lsd --completions` set up, leaves
+Leaf and the rest of your shell config alone, and tells you what's left.
 
 Or by hand: download lsd for your machine from the
 [latest release](https://github.com/vkpdeveloper/lsd/releases/latest), or
@@ -85,8 +86,17 @@ lsdcd() {
 
 ## Tab completion
 
-`lsd --completions <shell>` prints the completion script for bash, zsh, fish,
-elvish, PowerShell or Nushell. Set it up once for your shell:
+Run this once in your shell, and Tab completes flags, their values (`--sort`,
+`--size`, `--icons`) and paths in every new terminal:
+
+```sh
+lsd --completions
+```
+
+It works in bash, zsh, fish, elvish, PowerShell and Nushell, and sets up the
+shell you run it from. `lsd --uninstall` takes it out again.
+
+`lsd --completions <shell>` prints the script itself, to set it up by hand:
 
 ```sh
 # bash: add to ~/.bashrc
@@ -96,7 +106,7 @@ eval "$(lsd --completions bash)"
 source <(lsd --completions zsh)
 
 # fish: run once
-lsd --completions fish > ~/.config/fish/completions/lsd.fish
+echo 'lsd --completions fish | source' > ~/.config/fish/completions/lsd.fish
 
 # elvish: add to ~/.config/elvish/rc.elv
 eval (lsd --completions elvish | slurp)
@@ -104,13 +114,10 @@ eval (lsd --completions elvish | slurp)
 # PowerShell: add to $PROFILE
 lsd --completions powershell | Out-String | Invoke-Expression
 
-# Nushell: run once
+# Nushell: run once, and again after updating lsd
 mkdir ($nu.data-dir | path join "vendor/autoload")
 lsd --completions nushell | save -f ($nu.data-dir | path join "vendor/autoload/lsd.nu")
 ```
-
-Tab then completes flags, their values (`--sort`, `--size`, `--icons`) and
-paths. After updating lsd, run the fish or Nushell lines again.
 
 ## Browser keys
 

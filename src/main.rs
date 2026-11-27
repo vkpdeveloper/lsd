@@ -11,14 +11,15 @@ mod kitty;
 mod leaf;
 mod meta;
 mod places;
+mod setup;
 mod term;
 mod thumb;
 mod tui;
 mod view;
 
 use std::io::{self, Write};
-use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::path::PathBuf;
+use std::process::ExitCode;
 
 use clap::{CommandFactory, Parser};
 
@@ -99,9 +100,13 @@ struct Cli {
     #[arg(long, value_name = "FILE")]
     cwd_file: Option<PathBuf>,
 
-    /// Print the tab completion script for SHELL.
-    #[arg(long, value_enum, value_name = "SHELL", exclusive = true)]
-    completions: Option<Shell>,
+    /// Set up tab completion for this shell. With SHELL, print its script.
+    #[arg(long, value_enum, value_name = "SHELL", num_args = 0..=1, exclusive = true)]
+    completions: Option<Option<Shell>>,
+
+    /// Update lsd to the latest release.
+    #[arg(long, exclusive = true)]
+    update: bool,
 
     /// Remove lsd and its thumbnail cache from this machine.
     #[arg(long, exclusive = true)]
@@ -162,28 +167,13 @@ _lsd_files_first() {
 complete -F _lsd_files_first -o bashdefault -o default lsd
 "#;
 
-/// The script behind `curl .../uninstall.sh | sh`, so both remove the same
-/// copies and leave LSDeluxe's `lsd` alone.
-const UNINSTALL: &str = include_str!("../uninstall.sh");
-
-fn uninstall() -> ExitCode {
-    let mut sh = Command::new("sh");
-    sh.arg("-c").arg(UNINSTALL).arg("uninstall.sh");
-    // The script looks in $LSD_INSTALL_DIR first. Point it at this copy, which
-    // may sit in a folder that isn't on the PATH.
-    let exe = std::env::current_exe().ok();
-    if let Some(dir) = exe.as_deref().and_then(Path::parent)
-        && std::env::var_os("LSD_INSTALL_DIR").is_none()
-    {
-        sh.env("LSD_INSTALL_DIR", dir);
-    }
-    match sh.status() {
-        Ok(status) if status.success() => ExitCode::SUCCESS,
-        Ok(_) => ExitCode::FAILURE,
-        Err(err) => {
-            eprintln!("lsd: couldn't run sh: {err}");
+fn print_completions(shell: Shell) -> ExitCode {
+    match completions(shell).and_then(|script| io::stdout().write_all(&script)) {
+        Err(err) if err.kind() != io::ErrorKind::BrokenPipe => {
+            eprintln!("lsd: {err}");
             ExitCode::FAILURE
         }
+        _ => ExitCode::SUCCESS,
     }
 }
 
@@ -213,17 +203,16 @@ fn main() -> ExitCode {
         .complete();
     let cli = Cli::parse();
     // Before anything looks at the terminal: shells run this at startup.
-    if let Some(shell) = cli.completions {
-        return match completions(shell).and_then(|script| io::stdout().write_all(&script)) {
-            Err(err) if err.kind() != io::ErrorKind::BrokenPipe => {
-                eprintln!("lsd: {err}");
-                ExitCode::FAILURE
-            }
-            _ => ExitCode::SUCCESS,
-        };
+    match cli.completions {
+        Some(Some(shell)) => return print_completions(shell),
+        Some(None) => return setup::completions(),
+        None => {}
+    }
+    if cli.update {
+        return setup::update();
     }
     if cli.uninstall {
-        return uninstall();
+        return setup::uninstall();
     }
     let term = Term::detect();
     if term.tmux_hint {

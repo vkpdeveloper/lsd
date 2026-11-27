@@ -9,8 +9,9 @@
 # It removes lsd from where install.sh puts it (~/.local/bin, or
 # $LSD_INSTALL_DIR), from cargo's bin folder and from anywhere else on the
 # PATH, but only a binary that really is this lsd: LSDeluxe also installs a
-# command called lsd, and that one stays. Leaf, its library and your shell
-# config are left alone; it says where to look.
+# command called lsd, and that one stays. It takes out the tab completion
+# `lsd --completions` set up. Leaf, its library and the rest of your shell
+# config are left alone; it says where lsd still comes up.
 #
 # Everything runs inside main(), called on the last line, so a download cut
 # short never runs half a script.
@@ -18,6 +19,10 @@
 set -eu
 
 GREEN="" YELLOW="" DIM="" RESET=""
+CONFIG=${XDG_CONFIG_HOME:-$HOME/.config}
+# Around what `lsd --completions` adds to a shell's config.
+BEGIN="# >>> lsd tab completion >>>"
+END="# <<< lsd tab completion <<<"
 
 say() { printf '%s\n' "$*"; }
 step() { say "  ${GREEN}✓${RESET} $*"; }
@@ -77,6 +82,38 @@ remove_cache() {
   step "Removed the thumbnail cache at $(home "$cache")${size:+ ($size)}"
 }
 
+# The shell configs lsd --completions may write to, one per line.
+shell_configs() {
+  printf '%s\n' "${ZDOTDIR:-$HOME}/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile" \
+    "$HOME/.profile" "$CONFIG/fish/config.fish" "$CONFIG/elvish/rc.elv" \
+    "$CONFIG/powershell/Microsoft.PowerShell_profile.ps1"
+  if command -v pwsh >/dev/null 2>&1; then
+    pwsh -NoProfile -Command '$PROFILE' 2>/dev/null || true
+  fi
+}
+
+remove_completions() {
+  shell_configs | sort -u | while IFS= read -r rc; do
+    [ -f "$rc" ] && grep -qxF "$BEGIN" "$rc" || continue
+    tmp=$(mktemp)
+    # Written back in place, so a config that is a symlink stays one.
+    sed "/^$BEGIN\$/,/^$END\$/d" "$rc" >"$tmp" && cat "$tmp" >"$rc"
+    rm -f "$tmp"
+    step "Removed tab completion from $(home "$rc")"
+  done
+  # Files that are lsd's alone: fish's, and Nushell's copy of the script.
+  nu_file=""
+  if command -v nu >/dev/null 2>&1; then
+    nu_dir=$(nu -n -c '$nu.data-dir' 2>/dev/null || true)
+    [ -z "$nu_dir" ] || nu_file="$nu_dir/vendor/autoload/lsd.nu"
+  fi
+  for file in "$CONFIG/fish/completions/lsd.fish" "$nu_file"; do
+    [ -n "$file" ] && [ -f "$file" ] || continue
+    rm -f "$file"
+    step "Removed tab completion at $(home "$file")"
+  done
+}
+
 notes() {
   leaf=$(command -v leaf 2>/dev/null || true)
   [ -n "$leaf" ] || [ ! -x "$HOME/.local/bin/leaf" ] || leaf=$HOME/.local/bin/leaf
@@ -86,7 +123,7 @@ notes() {
     aside "To remove it too: rm $leaf"
   fi
   header=""
-  for rc in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.profile" "$HOME/.config/fish/config.fish"; do
+  shell_configs | sort -u | while IFS= read -r rc; do
     [ -f "$rc" ] || continue
     found=$(grep -n -e 'lsd --completions' -e 'lsdcd' "$rc" 2>/dev/null | cut -d: -f1 | paste -sd, - || true)
     [ -n "$found" ] || continue
@@ -110,6 +147,7 @@ main() {
   say ""
   remove_binaries
   remove_cache
+  remove_completions
   notes
   say ""
   say "  To install lsd again: curl -fsSL https://raw.githubusercontent.com/vkpdeveloper/lsd/main/install.sh | sh"

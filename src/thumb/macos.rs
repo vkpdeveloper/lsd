@@ -14,11 +14,16 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use super::objc::{self, Block, Id, Pool, msg};
-use super::{Class, Job, Mode, What};
+use super::{Class, Icon, Job, Mode, What};
 
 /// QuickLook has a generator or at least an icon for everything.
 pub fn renders(_class: Class, _ext: &str) -> bool {
     true
+}
+
+/// Cache name prefix for type icons, which all come from QuickLook.
+pub fn icon_kind(_icon: &Icon) -> String {
+    "type".into()
 }
 
 /// QuickLook runs a few generators at a time; this keeps it busy without

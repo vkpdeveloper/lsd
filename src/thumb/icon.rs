@@ -1,7 +1,8 @@
 //! Drawn icons for folders and files without a content thumbnail: a blue
 //! folder with a tab, a white page with a folded corner (tinted by type), and
-//! a terminal for executables. Used on Linux, and on macOS only when QuickLook
-//! cannot produce an icon.
+//! a terminal for executables. Used on Linux for files and for folders when
+//! the icon theme has none, and on macOS only when QuickLook cannot produce an
+//! icon.
 //!
 //! Shapes are signed distance functions in unit coordinates, so every edge is
 //! antialiased at any size.
@@ -18,7 +19,7 @@ const fn rgb(r: u8, g: u8, b: u8) -> Color {
 pub fn draw(icon: &Icon, px: u32) -> Vec<u8> {
     let mut c = Canvas::new(px);
     match icon {
-        Icon::Folder | Icon::Package(_) => folder(&mut c),
+        Icon::Folder | Icon::Place(_) | Icon::Package(_) => folder(&mut c),
         Icon::Exec => terminal(&mut c),
         Icon::Plain => page(&mut c, Style::Plain),
         Icon::Ext(ext) => page(&mut c, style(ext)),

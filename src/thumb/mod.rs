@@ -2,7 +2,8 @@
 //!
 //! macOS asks QuickLook in process, so pictures and icons match Finder. Linux
 //! decodes images itself, uses ffmpeg and pdftoppm when they are installed,
-//! reuses the freedesktop thumbnail cache, and draws folder and file icons.
+//! reuses the freedesktop thumbnail cache, takes folder icons from the icon
+//! theme like Nautilus, and draws file icons.
 //!
 //! Which picture an entry gets (see [`content`]):
 //! - Content thumbnails are cached per file, keyed by path, size, mtime, pixel
@@ -88,6 +89,10 @@ pub(crate) enum Class {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum Icon {
     Folder,
+    /// A folder the file manager draws with its own icon theme name, like
+    /// `folder-download` for the XDG download folder. Linux only.
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
+    Place(&'static str),
     /// A folder that macOS shows as a file, like `.xcodeproj` or `.bundle`.
     Package(String),
     Ext(String),
@@ -273,7 +278,14 @@ impl Thumbnailer {
                 what: What::Content(class),
             };
         }
-        let icon = Icon::of(entry, &ext);
+        #[cfg_attr(target_os = "macos", allow(unused_mut))]
+        let mut icon = Icon::of(entry, &ext);
+        #[cfg(not(target_os = "macos"))]
+        if icon == Icon::Folder
+            && let Some(name) = linux::place(&src)
+        {
+            icon = Icon::Place(name);
+        }
         // The generic folder comes from a folder lsd owns, so a custom icon on
         // whichever user folder is rendered first cannot leak into all folders.
         let src = if icon == Icon::Folder {
@@ -290,16 +302,16 @@ impl Thumbnailer {
         }
     }
 
-    /// Type icons come from the platform; `drawn` ones are lsd's own. Linux
-    /// only has the drawn kind.
+    /// Type icons come from the platform; `drawn` ones are lsd's own.
     fn icon_path(&self, icon: &Icon, px: u32, drawn: bool) -> PathBuf {
-        let kind = if drawn || !cfg!(target_os = "macos") {
-            "draw"
+        let kind = if drawn {
+            "draw".into()
         } else {
-            "type"
+            backend::icon_kind(icon)
         };
         let name = match icon {
             Icon::Folder => "folder".into(),
+            Icon::Place(name) => (*name).into(),
             Icon::Package(ext) => format!("pkg-{ext}"),
             Icon::Ext(ext) => format!("ext-{ext}"),
             Icon::Plain => "file".into(),

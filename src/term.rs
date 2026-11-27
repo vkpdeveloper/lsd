@@ -108,7 +108,11 @@ fn var(k: &str) -> String {
 
 fn classify(name: &str) -> Outer {
     let name = name.to_ascii_lowercase();
-    if name.contains("kitty") || name.contains("ghostty") {
+    // Rex draws with Ghostty's engine. It names itself "rex" in TERM_PROGRAM
+    // and "rex 0.1.0" to tmux. The name is too short to look for anywhere
+    // else in a name.
+    let rex = name == "rex" || name.starts_with("rex ");
+    if name.contains("kitty") || name.contains("ghostty") || rex {
         Outer::Kitty
     } else if name.contains("iterm") || name.contains("wezterm") {
         Outer::Iterm
@@ -124,12 +128,7 @@ fn outer_from_env() -> Outer {
             return found;
         }
     }
-    // Rex draws with Ghostty's engine. Its name is too short to look for
-    // inside other names, so it has to match exactly.
-    if var("TERM_PROGRAM") == "rex"
-        || env::var_os("KITTY_WINDOW_ID").is_some()
-        || env::var_os("GHOSTTY_RESOURCES_DIR").is_some()
-    {
+    if env::var_os("KITTY_WINDOW_ID").is_some() || env::var_os("GHOSTTY_RESOURCES_DIR").is_some() {
         Outer::Kitty
     } else if env::var_os("WEZTERM_EXECUTABLE").is_some()
         || env::var_os("ITERM_SESSION_ID").is_some()
@@ -368,6 +367,9 @@ mod tests {
         assert_eq!(classify("xterm-ghostty"), Outer::Kitty);
         assert_eq!(classify("WezTerm 20240203-110809-5046fc22"), Outer::Iterm);
         assert_eq!(classify("iTerm2 3.5.10"), Outer::Iterm);
+        assert_eq!(classify("rex"), Outer::Kitty);
+        assert_eq!(classify("rex 0.1.0-preview.25"), Outer::Kitty);
+        assert_eq!(classify("direx"), Outer::Other);
         assert_eq!(classify("alacritty"), Outer::Other);
     }
 }

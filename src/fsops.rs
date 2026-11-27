@@ -79,6 +79,8 @@ pub fn new_folder(dir: &Path) -> io::Result<PathBuf> {
 
 /// Opens with the default app, detached and silent.
 pub fn open(path: &Path) -> io::Result<()> {
+    #[cfg(not(target_os = "macos"))]
+    need_desktop()?;
     let opener = if cfg!(target_os = "macos") {
         "open"
     } else {
@@ -97,7 +99,38 @@ pub fn reveal(path: &Path) -> io::Result<()> {
     }
     #[cfg(not(target_os = "macos"))]
     {
+        need_desktop()?;
         reveal_freedesktop(&path)
+    }
+}
+
+/// Linux opens things through the desktop. Without one (over SSH, on a
+/// console) xdg-open can only fail, and it would fail out of sight.
+#[cfg(not(target_os = "macos"))]
+fn need_desktop() -> io::Result<()> {
+    if std::env::var_os("WAYLAND_DISPLAY").is_some() || std::env::var_os("DISPLAY").is_some() {
+        Ok(())
+    } else {
+        Err(io::Error::other("There's no desktop here to open it in."))
+    }
+}
+
+/// An error as people should read it: lsd's own messages as written, the
+/// system's without Rust's "(os error 13)".
+pub fn describe(err: &io::Error) -> String {
+    if err.raw_os_error().is_none() && err.get_ref().is_none() {
+        // Only a kind, which reads "permission denied".
+        let text = err.kind().to_string();
+        let mut chars = text.chars();
+        return match chars.next() {
+            Some(first) => first.to_uppercase().chain(chars).collect(),
+            None => text,
+        };
+    }
+    let text = err.to_string();
+    match text.rfind(" (os error ") {
+        Some(at) => text[..at].to_string(),
+        None => text,
     }
 }
 
@@ -521,6 +554,19 @@ pub(crate) mod tests {
             .collect();
         names.sort();
         names
+    }
+
+    #[test]
+    fn errors_read_as_sentences() {
+        let own = invalid("A folder can't be copied into itself.");
+        assert_eq!(describe(&own), "A folder can't be copied into itself.");
+        let named = about(
+            Path::new("/x/a.png"),
+            io::Error::from_raw_os_error(libc::EACCES),
+        );
+        assert_eq!(describe(&named), "a.png: Permission denied");
+        let bare = io::Error::from(io::ErrorKind::PermissionDenied);
+        assert_eq!(describe(&bare), "Permission denied");
     }
 
     #[test]

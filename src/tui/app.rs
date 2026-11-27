@@ -690,7 +690,10 @@ impl App {
         let Some(e) = self.current() else { return };
         let (path, name) = (e.path.clone(), e.name.clone());
         if let Err(err) = fsops::open(&path) {
-            self.fail(format!("Could not open “{name}”: {}", work::describe(&err)));
+            self.fail(format!(
+                "Could not open “{name}”: {}",
+                fsops::describe(&err)
+            ));
         }
     }
 
@@ -699,7 +702,7 @@ impl App {
             return;
         };
         if let Err(err) = fsops::reveal(&path) {
-            self.fail(format!("Could not reveal: {}", work::describe(&err)));
+            self.fail(format!("Could not reveal: {}", fsops::describe(&err)));
         }
     }
 
@@ -770,7 +773,7 @@ impl App {
                         .map(|n| n.to_string_lossy().into_owned()),
                 },
                 Err(err) => Done {
-                    text: format!("Could not paste: {}", work::describe(&err)),
+                    text: format!("Could not paste: {}", fsops::describe(&err)),
                     error: true,
                     select: None,
                 },
@@ -797,7 +800,7 @@ impl App {
                 select: None,
             },
             Err(err) => Done {
-                text: format!("Could not move to the Trash: {}", work::describe(&err)),
+                text: format!("Could not move to the Trash: {}", fsops::describe(&err)),
                 error: true,
                 select: None,
             },
@@ -855,7 +858,7 @@ impl App {
         }
         match fsops::rename(&r.path, name) {
             Ok(new) => self.upsert(Some(&r.path), &new),
-            Err(err) => self.fail(format!("Could not rename: {}", work::describe(&err))),
+            Err(err) => self.fail(format!("Could not rename: {}", fsops::describe(&err))),
         }
     }
 
@@ -868,7 +871,10 @@ impl App {
                 self.upsert(None, &path);
                 self.start_rename(RenameAt::Extension);
             }
-            Err(err) => self.fail(format!("Could not make a folder: {}", work::describe(&err))),
+            Err(err) => self.fail(format!(
+                "Could not make a folder: {}",
+                fsops::describe(&err)
+            )),
         }
     }
 

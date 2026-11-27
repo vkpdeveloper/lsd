@@ -47,7 +47,7 @@ impl Listing {
 
 pub fn read_listing(path: &Path, sort: Sort) -> Result<Listing, String> {
     let mtime = std::fs::metadata(path).and_then(|m| m.modified()).ok();
-    let mut entries = entry::read_dir(path, true).map_err(|e| describe(&e))?;
+    let mut entries = entry::read_dir(path, true).map_err(|e| crate::fsops::describe(&e))?;
     entry::sort(&mut entries, sort);
     Ok(Listing {
         entries,
@@ -62,16 +62,6 @@ pub fn load_dir(tx: &Sender<Msg>, path: PathBuf, sort: Sort) {
         let result = read_listing(&path, sort);
         let _ = tx.send(Msg::Dir(path, result));
     });
-}
-
-/// "Permission denied", without the "(os error 13)".
-pub fn describe(err: &std::io::Error) -> String {
-    let text = err.kind().to_string();
-    let mut chars = text.chars();
-    match chars.next() {
-        Some(first) => first.to_uppercase().chain(chars).collect(),
-        None => text,
-    }
 }
 
 /// What a file operation reports when it finishes.

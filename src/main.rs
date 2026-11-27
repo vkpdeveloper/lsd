@@ -253,7 +253,7 @@ fn list(cli: &Cli, term: &Term) -> io::Result<bool> {
                 files.push(e);
             }
             Err(err) => {
-                eprintln!("lsd: {}: {}", path.display(), err.kind());
+                eprintln!("lsd: {}: {}", path.display(), fsops::describe(&err));
                 ok = false;
             }
         }
@@ -308,7 +308,7 @@ fn list(cli: &Cli, term: &Term) -> io::Result<bool> {
         let mut entries = match entry::read_dir(&dir.path, cli.all) {
             Ok(entries) => entries,
             Err(err) => {
-                eprintln!("lsd: {}: {}", dir.path.display(), err.kind());
+                eprintln!("lsd: {}: {}", dir.path.display(), fsops::describe(&err));
                 ok = false;
                 continue;
             }

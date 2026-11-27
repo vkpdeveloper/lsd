@@ -28,8 +28,9 @@ curl -fsSL https://raw.githubusercontent.com/vkpdeveloper/lsd/main/install.sh | 
 
 It works on macOS (Apple silicon and Intel) and Linux (x86_64 and ARM, any
 distro). It downloads lsd from the latest release, checks it against its
-SHA-256 and puts it in `~/.local/bin`. It also installs Leaf with Leaf's own
-installer, unless you already have it. Run the same command again to update.
+SHA-256 and puts it in `~/.local/bin`. It also installs Leaf next to it with
+Leaf's own installer, unless you already have it. Run the same command again
+to update.
 
 To put lsd somewhere else, set `LSD_INSTALL_DIR`:
 

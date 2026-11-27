@@ -1,6 +1,6 @@
 [package]
 name = "lsd"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "ls + display: lists files with real thumbnails, like a Finder window in your terminal, plus a vim-key browser with a preview pane and Quick Look"
 license = "MIT"

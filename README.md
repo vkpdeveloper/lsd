@@ -1,4 +1,9 @@
-# lsd
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/lsd-logo-dark.svg">
+    <img src="assets/lsd-logo-light.svg" alt="lsd" width="200">
+  </picture>
+</h1>
 
 `ls` + display. It lists files with real thumbnails, like a Finder window in
 your terminal. `lsd -i` opens a full browser with vim keys, a preview pane,

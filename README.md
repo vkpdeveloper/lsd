@@ -18,6 +18,8 @@ Quick Look and file operations.
   the network. Until the picture is ready, or with no browser, you see the
   source.
 - Icons, list, columns and gallery views, Finder-style dates, sizes and kinds.
+- Git aware: changed files are marked, and the preview pane shows a changed
+  file's diff.
 - Matches your terminal's colors on its own, light or dark.
 - PDFs, EPUBs, Markdown, office files and tables open in
   [Leaf](https://github.com/DeepanshuMishraa/leaf), right in the terminal.
@@ -119,6 +121,7 @@ list inside lsd.
 | `a` | New folder |
 | `D` `Delete` | Move to the Trash |
 | `Space` | Quick Look |
+| `gd` `gD` | Focus the diff in the preview pane, show it full screen. See [Git](#git) |
 | `zi` `zl` `zc` `zg` | Icons, list, columns, gallery |
 | `zt` `zz` `zb`, `Ctrl-e` `Ctrl-y` | Scroll |
 | `zh` `.` | Hidden files |
@@ -129,6 +132,43 @@ list inside lsd.
 | `q` `ZZ` `:q` | Quit |
 
 The mouse works too: click, double click, scroll, and click the toolbar.
+
+## Git
+
+Inside a git repository, the browser marks what changed and shows the
+branch in the bottom bar, or the short commit when HEAD is detached, with
+`↑` and `↓` for commits ahead of and behind its upstream.
+
+| Mark | |
+| --- | --- |
+| `M` | Modified |
+| `A` | Added |
+| `U` | Untracked |
+| `R` | Renamed |
+| `!` | Conflict |
+| `•` | A folder with changes inside |
+| dimmed name | Ignored |
+
+When the selected file has changes, the preview pane shows its diff instead
+of the file: the file as it is now against the last commit, so staged and
+unstaged changes both show. Untracked files show as all added, a renamed file
+says where it came from, and a conflict shows git's conflict markers as added
+lines. Binary files keep their usual preview. Deleted files are not in the
+folder anymore, so only the folder's mark shows them.
+
+`gd` moves the keys into the diff and `gD` shows it full screen:
+
+| Keys | |
+| --- | --- |
+| `j` `k`, `Ctrl-d` `Ctrl-u`, `Ctrl-f` `Ctrl-b` | Scroll a line, half a page, a page |
+| `gg` `G` | Top, bottom |
+| `n` `N`, `]` `[` | Next, previous change |
+| `h` `l`, `0` | Scroll sideways, back to the start |
+| `Enter` | Full screen, and back to the pane |
+| `Esc` `q` `gd` | Back to the files |
+
+Diffs longer than 20,000 lines show their first 20,000. Plain `lsd` and
+`lsd -l` don't ask git, so they stay as fast as `ls`.
 
 ## Leaf
 

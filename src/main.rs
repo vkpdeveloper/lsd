@@ -4,6 +4,7 @@ mod entry;
 mod epub;
 mod fmt;
 mod fsops;
+mod git;
 mod glyph;
 mod halfblock;
 mod iterm;

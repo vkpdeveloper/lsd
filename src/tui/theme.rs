@@ -26,6 +26,10 @@ pub struct Theme {
     /// Separators and placeholders.
     pub faint: Style,
     pub error: Style,
+    /// Added and removed lines in a diff: a faint green or red wash over the
+    /// background, or green and red text when the background is unknown.
+    pub add: Style,
+    pub del: Style,
 }
 
 impl Theme {
@@ -49,6 +53,10 @@ impl Theme {
             }
         };
         let mix = |amount| rgb(c.mix(amount));
+        let wash = |color: Rgb| {
+            let amount = if c.is_dark() { 0.2 } else { 0.14 };
+            rgb(blend(c.bg, color, amount))
+        };
         // Dark themes tend to have a light, pastel blue and light themes a deep
         // one, so the background color reads best on the accent in both. When we
         // know the actual blue, pick whichever of fg and bg contrasts more.
@@ -65,6 +73,8 @@ impl Theme {
             dim: Style::new().fg(mix(0.55)),
             faint: Style::new().fg(mix(0.3)),
             error: Style::new().fg(Color::Red),
+            add: Style::new().bg(wash((63, 185, 80))),
+            del: Style::new().bg(wash((248, 81, 73))),
         }
     }
 
@@ -81,6 +91,8 @@ impl Theme {
             dim: Style::new().add_modifier(Modifier::DIM),
             faint: Style::new().add_modifier(Modifier::DIM),
             error: Style::new().fg(Color::Red),
+            add: Style::new().fg(Color::Green),
+            del: Style::new().fg(Color::Red),
         }
     }
 
@@ -88,6 +100,12 @@ impl Theme {
     pub fn bg_of(style: Style) -> Color {
         style.bg.unwrap_or(Color::Reset)
     }
+}
+
+/// `amount` (0..=1) of the way from `a` to `b`.
+fn blend(a: Rgb, b: Rgb, amount: f32) -> Rgb {
+    let m = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * amount).round() as u8;
+    (m(a.0, b.0), m(a.1, b.1), m(a.2, b.2))
 }
 
 /// WCAG contrast ratio between two colors.

@@ -8,6 +8,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Clear, Widget};
 
 use super::app::{self, App, Hit, Mode};
+use super::git;
 use super::theme::Theme;
 use super::ui::{
     Ctx, centered, fill, glyph, glyph_in, keys, rename_field, text, text_right, vline,
@@ -87,6 +88,10 @@ pub fn icons(buf: &mut Buffer, area: Rect, app: &mut App, cx: &mut Ctx) {
 
         let icon = Rect::new(tile.x + (tile.width - box_w) / 2, tile.y, box_w, box_h);
         tile_icon(buf, cx, icon, e, selected, px);
+        let look = git::look(cx.git.as_deref(), &e.path);
+        if let Some((badge, style)) = look.badge {
+            text(buf, icon.right() + 1, icon.bottom() - 1, badge, 1, style);
+        }
 
         let label_w = tile.width - 2;
         let y = tile.y + box_h;
@@ -113,6 +118,8 @@ pub fn icons(buf: &mut Buffer, area: Rect, app: &mut App, cx: &mut Ctx) {
                     th.sel
                 } else if marked {
                     th.accent
+                } else if look.dim {
+                    th.dim
                 } else {
                     Style::new()
                 };
@@ -318,8 +325,15 @@ pub fn list(buf: &mut Buffer, area: Rect, app: &mut App, cx: &mut Ctx) {
                 rename_field(buf, Rect::new(x0 - 1, y, cols.name + 2, 1), rn, th);
             }
             _ => {
-                let name = fmt::ellipsize_middle(&e.name, cols.name as usize);
-                text(buf, x0, y, &name, cols.name, base);
+                let look = git::look(cx.git.as_deref(), &e.path);
+                let room = cols.name - if look.badge.is_some() { 2 } else { 0 };
+                let name = fmt::ellipsize_middle(&e.name, room as usize);
+                let style = if look.dim && !selected { th.dim } else { base };
+                text(buf, x0, y, &name, room, style);
+                if let Some((badge, style)) = look.badge {
+                    let style = if selected { th.sel } else { style };
+                    text(buf, x0 + cols.name - 1, y, badge, 1, style);
+                }
             }
         }
         if cols.date > 0 {
@@ -456,7 +470,9 @@ pub fn columns(buf: &mut Buffer, area: Rect, app: &mut App, cx: &mut Ctx) {
             width: child.width.saturating_sub(4),
             height: child.height.saturating_sub(1),
         };
-        details(buf, inner, &e, cx);
+        if !git::preview(buf, inner, app, &e, cx) {
+            details(buf, inner, &e, cx);
+        }
     }
 }
 
@@ -493,17 +509,32 @@ fn column_row(buf: &mut Buffer, cx: &mut Ctx, row: Rect, e: &Entry, style: Style
     fill(buf, row, style);
     let bg = Theme::bg_of(style);
     small_icon(buf, cx, row.x + 1, row.y, e, bg, PRIO_VISIBLE);
-    let name_w = row.width.saturating_sub(7);
+    let folder = e.is_dir && !e.name.ends_with(".app");
+    let look = git::look(cx.git.as_deref(), &e.path);
+    // A folder's mark sits before its arrow.
+    let badge_w = if look.badge.is_some() && folder { 2 } else { 0 };
+    let name_w = row.width.saturating_sub(7 + badge_w);
     let name = fmt::ellipsize_middle(&e.name, name_w as usize);
     let name_style = if style != Style::new() {
         style
     } else if marked {
         th.accent
+    } else if look.dim {
+        th.dim
     } else {
         Style::new()
     };
     text(buf, row.x + 4, row.y, &name, name_w, name_style);
-    if e.is_dir && !e.name.ends_with(".app") {
+    if let Some((badge, badge_style)) = look.badge {
+        let s = if style != Style::new() {
+            style
+        } else {
+            badge_style
+        };
+        let x = row.right().saturating_sub(2 + badge_w);
+        text(buf, x, row.y, badge, 1, s);
+    }
+    if folder {
         let arrow = if style != Style::new() { style } else { th.dim };
         text(buf, row.right().saturating_sub(2), row.y, "›", 1, arrow);
     }
@@ -579,11 +610,21 @@ pub fn gallery(buf: &mut Buffer, area: Rect, app: &mut App, cx: &mut Ctx) {
         let tile = Rect::new(x0 + k as u16 * tile_w, strip.y, tile_w, strip_h);
         let icon = Rect::new(tile.x + (tile_w - box_w) / 2, tile.y, box_w, box_h);
         tile_icon(buf, cx, icon, e, i == app.sel, px);
+        let look = git::look(cx.git.as_deref(), &e.path);
+        if let Some((badge, style)) = look.badge {
+            text(buf, icon.right() + 1, icon.bottom() - 1, badge, 1, style);
+        }
         let label = fmt::ellipsize_middle(&e.name, tile_w as usize - 2);
         let w = fmt::width(&label) as u16;
         let x = tile.x + (tile_w - w) / 2;
         let y = icon.bottom();
-        let style = if i == app.sel { th.sel } else { th.dim };
+        let style = if i == app.sel {
+            th.sel
+        } else if look.dim {
+            th.faint
+        } else {
+            th.dim
+        };
         text(buf, x, y, &label, w, style);
         app.hits.push((tile, Hit::Item(i)));
     }
@@ -601,7 +642,9 @@ pub fn pane(buf: &mut Buffer, area: Rect, app: &mut App, cx: &mut Ctx) {
         width: area.width.saturating_sub(5),
         height: area.height.saturating_sub(1),
     };
-    details(buf, inner, &e, cx);
+    if !git::preview(buf, inner, app, &e, cx) {
+        details(buf, inner, &e, cx);
+    }
 }
 
 /// Picture, name, "Kind - Size", then Information, like Finder's preview pane.

@@ -5,6 +5,7 @@
 //! and nothing redraws unless something changed.
 
 mod app;
+mod git;
 mod input;
 mod pics;
 mod theme;
@@ -86,6 +87,7 @@ pub fn run(term: &Term, opts: Options) -> anyhow::Result<()> {
 
     if std::env::var_os("LSD_FRAME_STATS").is_some() {
         tui.report_frames();
+        tui.app.git.report();
     }
     if let Some(file) = &opts.cwd_file {
         std::fs::write(file, tui.app.cwd.as_os_str().as_encoded_bytes())
@@ -282,6 +284,14 @@ impl Tui {
                 self.app.on_done(done);
                 true
             }
+            Msg::Status(root, status, took) => {
+                self.app.git.on_status(root, status, took);
+                true
+            }
+            Msg::Diff(key, doc) => {
+                self.app.git.on_diff(key, doc);
+                true
+            }
             Msg::Thumb(..) | Msg::Half(..) | Msg::Info(..) => true,
         }
     }
@@ -308,6 +318,7 @@ impl Tui {
             pics: &mut self.pics,
             load: &mut self.load,
             icons: self.icons,
+            git: self.app.git.status(),
         };
         ui::draw(buf, area, &mut self.app, &mut cx);
         let post = self.pics.finish(buf);

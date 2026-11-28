@@ -26,6 +26,8 @@ pub enum Msg {
     Half(HalfKey, Option<Grid>),
     Info(InfoKey, Info),
     Done(Done),
+    Status(PathBuf, Option<crate::git::Status>, std::time::Duration),
+    Diff(super::git::DiffKey, Option<Box<super::git::DiffDoc>>),
 }
 
 /// A folder's entries, hidden ones included, sorted by `sort`.

@@ -11,6 +11,7 @@ use ratatui::crossterm::event::{
 use ratatui::layout::Position;
 
 use super::app::{self, Align, App, Hit, Mode, RenameAt, View};
+use super::git;
 
 /// Last left click, for double clicks.
 #[derive(Default)]
@@ -133,6 +134,7 @@ fn key(app: &mut App, k: KeyEvent) {
         }
         Mode::Help => app.mode = Mode::Normal,
         Mode::QuickLook => quick_look(app, k),
+        Mode::Diff { .. } => git::key(app, k),
     }
 }
 
@@ -392,6 +394,8 @@ fn command(app: &mut App, key: Key, count: Option<usize>) {
     match key {
         (None, Enter, _) => app.open(),
         (Some('g'), Char('x'), _) => app.open_default(),
+        (Some('g'), Char('d'), _) => git::focus(app, false),
+        (Some('g'), Char('D'), _) => git::focus(app, true),
         (None, Backspace, _) | (None, Char('-'), false) => {
             for _ in 0..times {
                 app.parent();
@@ -661,6 +665,7 @@ fn mouse(app: &mut App, clicks: &mut Clicks, m: MouseEvent) -> bool {
                 Mode::Rename(_) => app.commit_rename(),
                 Mode::Filter | Mode::Command(_) => app.mode = Mode::Normal,
                 Mode::Visual(_) => app.end_visual(true),
+                Mode::Diff { .. } => app.mode = Mode::Normal,
                 _ => {}
             }
             let Some(hit) = hit else { return true };
@@ -675,6 +680,10 @@ fn mouse(app: &mut App, clicks: &mut Clicks, m: MouseEvent) -> bool {
         }
         MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
             let up = m.kind == MouseEventKind::ScrollUp;
+            if matches!(app.mode, Mode::Diff { .. }) {
+                app.git.view.scroll(if up { -3 } else { 3 });
+                return true;
+            }
             let quick_look = matches!(app.mode, Mode::QuickLook);
             if !quick_look && matches!(app.view, View::Icons | View::List) {
                 app.scroll_by(if up { -1 } else { 1 } * if app.view == View::List { 3 } else { 1 });

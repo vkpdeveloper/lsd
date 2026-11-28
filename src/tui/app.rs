@@ -10,6 +10,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as B64;
 use ratatui::layout::Rect;
 
+use super::git::Git;
 use super::input::Pending;
 use super::work::{self, Done, Listing, Msg};
 use crate::entry::{self, Entry, Sort, SortKey};
@@ -51,6 +52,10 @@ pub enum Mode {
     Confirm(Vec<PathBuf>),
     Help,
     QuickLook,
+    /// Keys scroll the selected file's diff, in the preview pane or full screen.
+    Diff {
+        full: bool,
+    },
 }
 
 pub struct Visual {
@@ -167,6 +172,7 @@ pub struct App {
     pub defer: Option<Instant>,
     /// A document to hand to Leaf (the reader, then the file) before the next frame.
     pub read: Option<(PathBuf, PathBuf)>,
+    pub git: Git,
     pub quit: bool,
     tx: Sender<Msg>,
 }
@@ -220,6 +226,7 @@ impl App {
             osc: Vec::new(),
             defer: None,
             read: None,
+            git: Git::new(tx.clone()),
             quit: false,
             tx,
         };
@@ -488,6 +495,7 @@ impl App {
         self.follow = true;
         self.pending = self.memory.get(&self.cwd).cloned();
         self.free = places::free_space(&self.cwd);
+        self.git.enter(&self.cwd);
         match self.dirs.get(&self.cwd).cloned() {
             Some(list) => {
                 let fresh = modified(&self.cwd) == list.mtime;
@@ -539,7 +547,11 @@ impl App {
                 if self.dirs.len() > 64 {
                     self.dirs.clear();
                 }
-                self.dirs.insert(path, list.clone());
+                let reload = self.dirs.insert(path, list.clone()).is_some();
+                if here && reload {
+                    // Files changed, so the git status may have too.
+                    self.git.refresh(true);
+                }
                 if here {
                     self.error = None;
                     self.set_list(list);
@@ -592,9 +604,17 @@ impl App {
             self.enter(dir);
             return true;
         }
-        if modified(&self.cwd) != self.list.mtime {
+        // A file edited in place leaves its folder's date alone, so the
+        // selected one is checked too: its preview and diff should follow.
+        let edited = self.current().is_some_and(|e| {
+            !e.is_dir
+                && std::fs::metadata(&e.path)
+                    .is_ok_and(|m| m.modified().ok() != e.modified || m.len() != e.size)
+        });
+        if edited || modified(&self.cwd) != self.list.mtime {
             self.load(self.cwd.clone());
         }
+        self.git.refresh(false);
         changed
     }
 

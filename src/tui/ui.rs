@@ -2,6 +2,7 @@
 //! every view uses to put text and pictures into the buffer.
 
 use std::path::Path;
+use std::sync::Arc;
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Margin, Position, Rect};
@@ -9,12 +10,14 @@ use ratatui::style::{Modifier, Style};
 use ratatui::widgets::{Block, BorderType, Clear, Widget};
 
 use super::app::{App, Hit, Mode, Rename, View};
+use super::git;
 use super::pics::Pics;
 use super::theme::Theme;
 use super::views;
 use super::work::Loader;
 use crate::entry::Entry;
 use crate::fmt;
+use crate::git::Status;
 use crate::glyph::{self, Icons};
 use crate::places::{Place, PlaceKind};
 
@@ -23,6 +26,8 @@ pub struct Ctx<'a> {
     pub pics: &'a mut Pics,
     pub load: &'a mut Loader,
     pub icons: Icons,
+    /// The git status of the repository holding the current folder.
+    pub git: Option<Arc<Status>>,
 }
 
 const SIDEBAR_W: u16 = 20;
@@ -44,6 +49,12 @@ pub fn draw(buf: &mut Buffer, area: Rect, app: &mut App, cx: &mut Ctx) {
         match app.current().cloned() {
             Some(e) => return views::quick_look(buf, area, app, &e, cx),
             None => app.mode = Mode::Normal,
+        }
+    }
+    if matches!(app.mode, Mode::Diff { full: true }) {
+        match app.current().cloned() {
+            Some(e) if git::full(buf, area, app, &e, cx) => return,
+            _ => app.mode = Mode::Normal,
         }
     }
 
@@ -88,6 +99,7 @@ pub fn draw(buf: &mut Buffer, area: Rect, app: &mut App, cx: &mut Ctx) {
                 ..body
             }
         });
+    app.git.pane = pane.is_some() || app.view == View::Columns;
 
     if let Some(err) = &app.error {
         let msg = format!("Can’t open this folder: {err}");
@@ -292,8 +304,20 @@ fn path_bar(buf: &mut Buffer, area: Rect, app: &mut App, cx: &mut Ctx) {
         status.push_str(&format!(", {} available", fmt::size(free)));
     }
     let sw = fmt::width(&status) as u16;
-    let status_x = area.right().saturating_sub(sw + 2);
+    let mut status_x = area.right().saturating_sub(sw + 2);
     text(buf, status_x, y, &status, sw, th.dim);
+    if let Some(branch) = cx.git.as_deref().and_then(git::branch) {
+        let branch = match cx.icons {
+            Icons::Nerd => format!("\u{e0a0} {branch}"),
+            _ => branch,
+        };
+        let bw = fmt::width(&branch) as u16;
+        // Only when the path keeps some room.
+        if status_x > area.x + bw + 24 {
+            status_x -= bw + 3;
+            text(buf, status_x, y, &branch, bw, Style::new());
+        }
+    }
 
     let mut crumbs = Vec::new();
     let mut p = Some(app.cwd.as_path());
@@ -389,6 +413,20 @@ fn hints(buf: &mut Buffer, area: Rect, app: &App, cx: &mut Ctx) {
         }
         Mode::Rename(_) => keys(buf, x, y, w, &[("Enter", "Rename"), ("Esc", "Cancel")], th),
         Mode::Filter => keys(buf, x, y, w, &[("Enter", "Done"), ("Esc", "Clear")], th),
+        Mode::Diff { .. } => keys(
+            buf,
+            x,
+            y,
+            w,
+            &[
+                ("j k", "Scroll"),
+                ("n N", "Next, previous change"),
+                ("h l", "Sideways"),
+                ("Enter", "Full screen"),
+                ("Esc", "Back"),
+            ],
+            th,
+        ),
         _ => match &app.status {
             Some(s) => {
                 let style = if s.error { th.error } else { Style::new() };
@@ -466,6 +504,8 @@ const HELP: &[(&str, &str)] = &[
     ("a", "New folder"),
     ("D  Delete", "Move to Trash"),
     ("Space", "Quick Look"),
+    ("gd", "Focus the diff"),
+    ("gD", "Full-screen diff"),
     ("zi  zl", "Icons, list"),
     ("zc  zg", "Columns, gallery"),
     ("zt  zz  zb", "Scroll top, mid, bottom"),

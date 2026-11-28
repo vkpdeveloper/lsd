@@ -12,6 +12,11 @@ Quick Look and file operations.
 - Thumbnails for pictures, videos, PDFs, book covers and app icons, from
   QuickLook on macOS and the freedesktop thumbnailers on Linux. Code and
   JSON preview as colored text.
+- Web pages preview as the page itself, drawn by WebKit on macOS and by
+  Chrome, Chromium, Brave or Edge on Linux (`chrome-headless-shell` is
+  fastest). They load only files from the page's own folder and never touch
+  the network. Until the picture is ready, or with no browser, you see the
+  source.
 - Icons, list, columns and gallery views, Finder-style dates, sizes and kinds.
 - Matches your terminal's colors on its own, light or dark.
 - PDFs, EPUBs, Markdown, office files and tables open in
@@ -67,6 +72,7 @@ lsd -l ~/Downloads  # list view: date modified, size, kind
 lsd -T -L 2         # tree, two levels deep
 lsd -g photos/      # gallery: a large preview of each item
 lsd data.json       # one file: pretty-printed JSON, colored code
+lsd page.html       # one file: the page as a picture
 lsd -i              # browse
 ```
 

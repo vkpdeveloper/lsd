@@ -14,17 +14,14 @@ use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
-use std::time::{Duration, Instant, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 
 use image::{DynamicImage, ImageDecoder, ImageReader};
 
 use super::{
-    Class, Icon, Job, What, book_thumb, icon, png_size, save_png, save_scaled, tmp_path,
+    Class, Icon, Job, What, book_thumb, icon, png_size, run, save_png, save_scaled, tmp_path,
     write_atomic,
 };
-
-/// A stuck tool is killed after this long.
-const TIMEOUT: Duration = Duration::from_secs(5);
 
 pub fn renders(class: Class, ext: &str) -> bool {
     match class {
@@ -34,6 +31,7 @@ pub fn renders(class: Class, ext: &str) -> bool {
         Class::Video => tools().ffmpegthumbnailer.is_some() || tools().ffmpeg.is_some(),
         Class::Pdf => tools().pdftoppm.is_some(),
         Class::Book => true,
+        Class::Web => super::web::available(),
         Class::Other => false,
     }
 }
@@ -93,7 +91,8 @@ fn render(job: &Job) -> Option<(u32, u32)> {
             Class::Video => video_thumb(job),
             Class::Pdf => pdf_thumb(job),
             Class::Book => book_thumb(job),
-            Class::Other => None,
+            // Pages never get here: the thumbnailer hands them to `web`.
+            Class::Web | Class::Other => None,
         }),
     }
 }
@@ -173,30 +172,6 @@ fn finish(ok: bool, tmp: &Path, out: &Path) -> Option<(u32, u32)> {
     }
     let _ = std::fs::remove_file(tmp);
     None
-}
-
-/// Runs a tool quietly, killing it if it takes longer than [`TIMEOUT`].
-fn run(cmd: &mut Command) -> bool {
-    let Ok(mut child) = cmd
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-    else {
-        return false;
-    };
-    let deadline = Instant::now() + TIMEOUT;
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return status.success(),
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(5)),
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return false;
-            }
-        }
-    }
 }
 
 struct Tools {

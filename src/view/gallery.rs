@@ -10,23 +10,32 @@ use crate::meta::{self, Info};
 use crate::thumb::{Mode, Thumb};
 use crate::{fmt, glyph};
 
-pub fn render(ctx: &Ctx, entries: &[Entry], out: &mut impl Write) -> io::Result<()> {
-    if entries.is_empty() {
-        return Ok(());
-    }
-    let total = ctx.term.cols as usize;
-    let box_cols = ((total * 2 / 5) as u16).clamp(12, 48);
+/// Cells for each picture.
+fn picture_box(ctx: &Ctx) -> (u16, u16) {
+    let box_cols = ((ctx.term.cols as usize * 2 / 5) as u16).clamp(12, 48);
     // Keep every block on screen: iTerm2 pictures are placed by moving the
     // cursor back up, which cannot reach above the top row.
     let box_rows = ctx
         .square_rows(box_cols)
         .min(ctx.term.rows.saturating_sub(2).max(6));
+    (box_cols, box_rows)
+}
+
+/// Thumbnail size the gallery asks for.
+pub fn px(ctx: &Ctx) -> u32 {
+    ctx.px_for(picture_box(ctx))
+}
+
+pub fn render(ctx: &Ctx, entries: &[Entry], out: &mut impl Write) -> io::Result<()> {
+    if entries.is_empty() {
+        return Ok(());
+    }
+    let total = ctx.term.cols as usize;
+    let (box_cols, box_rows) = picture_box(ctx);
     let text_x = box_cols as usize + 3;
     let text_w = total.saturating_sub(text_x + 1).max(20);
 
-    let rx = ctx
-        .thumbs
-        .batch(entries, ctx.px_for((box_cols, box_rows)), Mode::Preview);
+    let rx = ctx.thumbs.batch(entries, px(ctx), Mode::Preview);
     let infos = infos(entries);
     let mut thumbs: Vec<Option<Option<Thumb>>> = vec![None; entries.len()];
     let mut details: Vec<Option<Info>> = vec![None; entries.len()];

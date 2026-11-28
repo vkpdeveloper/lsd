@@ -18,6 +18,7 @@ unsafe extern "C" {
     fn objc_getClass(name: *const c_char) -> Id;
     pub fn sel_registerName(name: *const c_char) -> Sel;
     pub fn objc_msgSend();
+    pub fn objc_retain(obj: Id) -> Id;
     pub fn objc_release(obj: Id);
     fn objc_autoreleasePoolPush() -> *mut c_void;
     fn objc_autoreleasePoolPop(pool: *mut c_void);

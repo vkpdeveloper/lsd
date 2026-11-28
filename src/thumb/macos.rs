@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 use std::ffi::c_void;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::{Mutex, OnceLock};
@@ -37,37 +37,30 @@ const REP_ALL: usize = usize::MAX;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct CGSize {
-    width: f64,
-    height: f64,
+pub(super) struct CGSize {
+    pub width: f64,
+    pub height: f64,
 }
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct CGRect {
-    origin: CGSize,
-    size: CGSize,
+pub(super) struct CGRect {
+    pub origin: CGSize,
+    pub size: CGSize,
 }
 
-type Ref = *mut c_void;
+pub(super) type Ref = *mut c_void;
 
 struct Ql {
     generator: Id,
-    srgb: Ref,
-    image_width: unsafe extern "C" fn(Ref) -> usize,
-    image_height: unsafe extern "C" fn(Ref) -> usize,
-    bitmap_context: unsafe extern "C" fn(Ref, usize, usize, usize, usize, Ref, u32) -> Ref,
-    draw_image: unsafe extern "C" fn(Ref, CGRect, Ref),
-    release_context: unsafe extern "C" fn(Ref),
 }
 
-// SAFETY: the shared generator and the color space are immutable and
-// documented as thread safe; the rest are function pointers.
+// SAFETY: the shared generator is documented as thread safe.
 unsafe impl Send for Ql {}
 unsafe impl Sync for Ql {}
 
-/// Loads QuickLookThumbnailing (and with it Foundation and CoreGraphics) on
-/// first use. None if anything is missing.
+/// Loads QuickLookThumbnailing (and with it Foundation) on first use. None if
+/// anything is missing.
 fn ql() -> Option<&'static Ql> {
     static QL: OnceLock<Option<Ql>> = OnceLock::new();
     QL.get_or_init(|| unsafe { load() }).as_ref()
@@ -81,6 +74,34 @@ unsafe fn load() -> Option<Ql> {
     {
         return None;
     }
+    cg()?;
+    let generator = unsafe { msg!(objc::class(c"QLThumbnailGenerator"), c"sharedGenerator"; Id) };
+    (!generator.is_null()).then_some(Ql { generator })
+}
+
+/// The CoreGraphics calls that turn a CGImage into a PNG.
+pub(super) struct Cg {
+    srgb: Ref,
+    image_width: unsafe extern "C" fn(Ref) -> usize,
+    image_height: unsafe extern "C" fn(Ref) -> usize,
+    bitmap_context: unsafe extern "C" fn(Ref, usize, usize, usize, usize, Ref, u32) -> Ref,
+    set_interpolation: unsafe extern "C" fn(Ref, i32),
+    draw_image: unsafe extern "C" fn(Ref, CGRect, Ref),
+    release_context: unsafe extern "C" fn(Ref),
+}
+
+// SAFETY: the color space is immutable and thread safe; the rest are function
+// pointers.
+unsafe impl Send for Cg {}
+unsafe impl Sync for Cg {}
+
+/// Loads CoreGraphics on first use. None if anything is missing.
+pub(super) fn cg() -> Option<&'static Cg> {
+    static CG: OnceLock<Option<Cg>> = OnceLock::new();
+    CG.get_or_init(|| unsafe { load_cg() }).as_ref()
+}
+
+unsafe fn load_cg() -> Option<Cg> {
     let cg = objc::dlopen(c"/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics");
     if cg.is_null() {
         return None;
@@ -89,17 +110,16 @@ unsafe fn load() -> Option<Ql> {
         let srgb_name: *const Ref = objc::sym(cg, c"kCGColorSpaceSRGB")?;
         let create_space: unsafe extern "C" fn(Ref) -> Ref =
             objc::sym(cg, c"CGColorSpaceCreateWithName")?;
-        let generator = msg!(objc::class(c"QLThumbnailGenerator"), c"sharedGenerator"; Id);
         let srgb = create_space(*srgb_name);
-        if generator.is_null() || srgb.is_null() {
+        if srgb.is_null() {
             return None;
         }
-        Some(Ql {
-            generator,
+        Some(Cg {
             srgb,
             image_width: objc::sym(cg, c"CGImageGetWidth")?,
             image_height: objc::sym(cg, c"CGImageGetHeight")?,
             bitmap_context: objc::sym(cg, c"CGBitmapContextCreate")?,
+            set_interpolation: objc::sym(cg, c"CGContextSetInterpolationQuality")?,
             draw_image: objc::sym(cg, c"CGContextDrawImage")?,
             release_context: objc::sym(cg, c"CGContextRelease")?,
         })
@@ -252,38 +272,56 @@ unsafe extern "C" fn on_done(block: *mut Block, rep: Id, _err: Id) {
     let Some(pend) = pending().lock().ok().and_then(|mut p| p.remove(&token)) else {
         return;
     };
-    let dims = ql().and_then(|ql| unsafe { save(ql, rep, &pend.out) });
+    let dims = unsafe { save(rep, &pend.out) };
     let _ = pend.tx.send((pend.job, dims));
 }
 
-/// Draws the representation's CGImage into straight RGBA and writes the PNG.
-unsafe fn save(ql: &Ql, rep: Id, out: &std::path::Path) -> Option<(u32, u32)> {
+/// Writes the representation's CGImage as a PNG.
+unsafe fn save(rep: Id, out: &Path) -> Option<(u32, u32)> {
     if rep.is_null() {
         return None;
     }
+    unsafe { save_image(msg!(rep, c"CGImage"; Ref), None, out) }
+}
+
+/// Draws a CGImage into straight RGBA, scaled to `size` if given, and writes
+/// the PNG.
+///
+/// # Safety
+/// `image` must be null or a CGImage.
+pub(super) unsafe fn save_image(
+    image: Ref,
+    size: Option<(u32, u32)>,
+    out: &Path,
+) -> Option<(u32, u32)> {
+    let cg = cg()?;
+    if image.is_null() {
+        return None;
+    }
+    let (w, h) = match size {
+        Some((w, h)) => (w as usize, h as usize),
+        None => unsafe { ((cg.image_width)(image), (cg.image_height)(image)) },
+    };
+    if w == 0 || h == 0 {
+        return None;
+    }
+    let mut rgba = vec![0u8; w * h * 4];
     unsafe {
-        let image = msg!(rep, c"CGImage"; Ref);
-        if image.is_null() {
-            return None;
-        }
-        let (w, h) = ((ql.image_width)(image), (ql.image_height)(image));
-        if w == 0 || h == 0 {
-            return None;
-        }
-        let mut rgba = vec![0u8; w * h * 4];
         // kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big: R, G, B, A bytes.
-        let ctx = (ql.bitmap_context)(
+        let ctx = (cg.bitmap_context)(
             rgba.as_mut_ptr().cast(),
             w,
             h,
             8,
             w * 4,
-            ql.srgb,
+            cg.srgb,
             1 | 4 << 12,
         );
         if ctx.is_null() {
             return None;
         }
+        // kCGInterpolationHigh, for pictures drawn smaller than they are.
+        (cg.set_interpolation)(ctx, 3);
         let rect = CGRect {
             origin: CGSize {
                 width: 0.0,
@@ -294,11 +332,11 @@ unsafe fn save(ql: &Ql, rep: Id, out: &std::path::Path) -> Option<(u32, u32)> {
                 height: h as f64,
             },
         };
-        (ql.draw_image)(ctx, rect, image);
-        (ql.release_context)(ctx);
-        unpremultiply(&mut rgba);
-        super::save_png(out, w as u32, h as u32, &rgba)
+        (cg.draw_image)(ctx, rect, image);
+        (cg.release_context)(ctx);
     }
+    unpremultiply(&mut rgba);
+    super::save_png(out, w as u32, h as u32, &rgba)
 }
 
 /// PNG stores straight alpha; CoreGraphics only draws premultiplied.

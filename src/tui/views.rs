@@ -17,7 +17,7 @@ use crate::doc::Line;
 use crate::entry::{Entry, SortKey};
 use crate::fmt;
 use crate::meta;
-use crate::thumb::Mode as ThumbMode;
+use crate::thumb::{self, Mode as ThumbMode, Thumb};
 
 /// Icon grid geometry: columns spread across the width like Finder's.
 #[derive(Debug, PartialEq, Eq)]
@@ -619,10 +619,12 @@ fn details(buf: &mut Buffer, area: Rect, e: &Entry, cx: &mut Ctx) {
         height: pic_h,
         ..area
     };
-    match cx.load.text(e, pic.width, pic.height) {
-        Some(lines) => draw_lines(buf, pic, &lines),
-        None => {
-            picture(buf, cx, pic, e, true);
+    if !page(buf, cx, pic, e, true) {
+        match cx.load.text(e, pic.width, pic.height) {
+            Some(lines) => draw_lines(buf, pic, &lines),
+            None => {
+                picture(buf, cx, pic, e, true);
+            }
         }
     }
 
@@ -762,14 +764,28 @@ fn picture(buf: &mut Buffer, cx: &mut Ctx, area: Rect, e: &Entry, bottom: bool) 
             Lookup::Failed => None,
         },
     };
-    let rect = match &thumb {
-        Some(t) => cx.pics.fit(area, t),
-        None => Rect {
-            y: area.y + area.height / 2,
-            height: 1,
-            ..area
-        },
-    };
+    match thumb {
+        Some(t) => place(buf, cx, area, &t, bottom),
+        None => {
+            let rect = Rect {
+                y: if bottom {
+                    area.bottom() - 1
+                } else {
+                    area.y + area.height / 2
+                },
+                height: 1,
+                ..area
+            };
+            glyph_in(buf, rect, e, cx.icons);
+            Some(rect)
+        }
+    }
+}
+
+/// Draws `t` as large as fits in `area`, on its bottom edge or in the middle.
+/// Returns the cells it covers, or None when it could not be drawn yet.
+fn place(buf: &mut Buffer, cx: &mut Ctx, area: Rect, t: &Thumb, bottom: bool) -> Option<Rect> {
+    let rect = cx.pics.fit(area, t);
     let rect = if bottom {
         Rect {
             y: area.bottom() - rect.height,
@@ -778,15 +794,23 @@ fn picture(buf: &mut Buffer, cx: &mut Ctx, area: Rect, e: &Entry, bottom: bool) 
     } else {
         rect
     };
-    match thumb {
-        Some(t) => cx
-            .pics
-            .draw(buf, cx.load, rect, &t, Color::Reset)
-            .then_some(rect),
-        None => {
-            glyph_in(buf, rect, e, cx.icons);
-            Some(rect)
-        }
+    cx.pics
+        .draw(buf, cx.load, rect, t, Color::Reset)
+        .then_some(rect)
+}
+
+/// A web page as the page itself, once it has been rendered. Until then, or
+/// when it cannot be, this draws nothing and returns false, and the caller
+/// shows the source as usual. Half blocks are too coarse to read a page, so
+/// that needs real images.
+fn page(buf: &mut Buffer, cx: &mut Ctx, area: Rect, e: &Entry, bottom: bool) -> bool {
+    if area.is_empty() || !cx.pics.images() || !thumb::page(e) {
+        return false;
+    }
+    let px = cx.pics.px((area.width, area.height));
+    match cx.load.thumb(e, px, ThumbMode::Preview, PRIO_PREVIEW) {
+        Lookup::Ready(t) => place(buf, cx, area, &t, bottom).is_some(),
+        Lookup::Pending | Lookup::Failed => false,
     }
 }
 
@@ -877,10 +901,12 @@ pub fn quick_look(buf: &mut Buffer, area: Rect, app: &mut App, e: &Entry, cx: &m
         width: area.width.saturating_sub(4),
         height: area.height.saturating_sub(4),
     };
-    match cx.load.text(e, pic.width, pic.height) {
-        Some(lines) => draw_lines(buf, pic, &lines),
-        None => {
-            picture(buf, cx, pic, e, false);
+    if !page(buf, cx, pic, e, false) {
+        match cx.load.text(e, pic.width, pic.height) {
+            Some(lines) => draw_lines(buf, pic, &lines),
+            None => {
+                picture(buf, cx, pic, e, false);
+            }
         }
     }
     // Neighbours first, so arrowing through a folder feels instant.

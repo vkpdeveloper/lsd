@@ -20,6 +20,9 @@
 //!   content thumbnails; office documents and the like use the type icon.
 //! - Preview mode shows one file at a time, so on macOS every file gets its
 //!   content (text included).
+//! - Web pages are drawn by a browser engine (see [`web`]), only in preview
+//!   mode. One that cannot be drawn gets nothing rather than its type icon, so
+//!   callers show its source instead.
 //!
 //! When content cannot be rendered the entry falls back to its type icon, and
 //! if even that fails, to a drawn icon, so `get` only returns None when the
@@ -33,6 +36,7 @@ mod linux;
 mod macos;
 #[cfg(target_os = "macos")]
 pub(crate) mod objc;
+pub mod web;
 
 #[cfg(not(target_os = "macos"))]
 use linux as backend;
@@ -42,10 +46,11 @@ use macos as backend;
 use std::collections::HashMap;
 use std::hash::Hasher;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
-use std::time::UNIX_EPOCH;
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use crate::entry::Entry;
 
@@ -54,6 +59,12 @@ const VERSION: u32 = 2;
 
 /// Largest size that counts as a list or tree row.
 const SMALL: u32 = 64;
+
+/// Pages rendered at once in a batch; each is a browser engine of its own.
+const PAGES_AT_ONCE: usize = 2;
+
+/// A stuck tool is killed after this long.
+const TIMEOUT: Duration = Duration::from_secs(5);
 
 /// How the thumbnail is drawn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -81,6 +92,8 @@ pub(crate) enum Class {
     Pdf,
     /// EPUB, whose cover lsd reads itself.
     Book,
+    /// HTML, drawn by a browser engine.
+    Web,
     /// Anything else QuickLook draws per file: documents, fonts, audio, apps.
     Other,
 }
@@ -196,8 +209,15 @@ impl Thumbnailer {
             .round(entries, &all, px, mode, false, emit)
             .into_iter()
             .partition(|&(_, content)| content);
-        // Content that could not be rendered gets its type icon instead.
-        let content: Vec<usize> = content.into_iter().map(|(i, _)| i).collect();
+        // Content that could not be rendered gets its type icon instead,
+        // except pages, which are better shown as their source.
+        let (pages, content): (Vec<usize>, Vec<usize>) = content
+            .into_iter()
+            .map(|(i, _)| i)
+            .partition(|&i| class_of(&ext_of(&entries[i])) == Some(Class::Web));
+        for i in pages {
+            emit(i, None);
+        }
         icons.extend(self.round(entries, &content, px, mode, true, emit));
         for (i, _) in icons {
             emit(i, self.drawn(&entries[i], px));
@@ -235,7 +255,12 @@ impl Thumbnailer {
         if jobs.is_empty() {
             return failed;
         }
-        backend::generate(&jobs, &mut |j, dims| {
+        // Pages go last and render on their own threads, next to the backend.
+        let mut both: Vec<(Job, Vec<usize>)> = jobs.into_iter().zip(waiting).collect();
+        both.sort_by_key(|(job, _)| matches!(job.what, What::Content(Class::Web)));
+        let split = both.partition_point(|(job, _)| !matches!(job.what, What::Content(Class::Web)));
+        let (jobs, waiting): (Vec<Job>, Vec<Vec<usize>>) = both.into_iter().unzip();
+        let mut finish = |j: usize, dims: Option<(u32, u32)>| {
             let job = &jobs[j];
             let Some((width, height)) = dims else {
                 let content = matches!(job.what, What::Content(_));
@@ -253,6 +278,31 @@ impl Thumbnailer {
                         height,
                     }),
                 );
+            }
+        };
+        let (others, pages) = jobs.split_at(split);
+        let next = AtomicUsize::new(0);
+        std::thread::scope(|s| {
+            let (tx, rx) = mpsc::channel();
+            for _ in 0..pages.len().min(PAGES_AT_ONCE) {
+                let (tx, next) = (tx.clone(), &next);
+                s.spawn(move || {
+                    loop {
+                        let k = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(job) = pages.get(k) else { break };
+                        let dims = web::render(&job.src, &job.out, job.px);
+                        if tx.send((split + k, dims)).is_err() {
+                            break;
+                        }
+                    }
+                });
+            }
+            drop(tx);
+            if !others.is_empty() {
+                backend::generate(others, &mut |j, dims| finish(j, dims));
+            }
+            for (j, dims) in rx {
+                finish(j, dims);
             }
         });
         failed
@@ -426,6 +476,8 @@ fn content(entry: &Entry, src: &Path, ext: &str, px: u32, mode: Mode) -> Option<
         (Mode::Preview, _) | (_, Class::Image | Class::Video | Class::Pdf | Class::Book) => {
             Some(class)
         }
+        // A browser engine per file is too slow for a folder of icons.
+        (Mode::Icon, Class::Web) => None,
         (Mode::Icon, Class::Other) => (px > SMALL).then_some(class),
     }
 }
@@ -451,6 +503,7 @@ pub(crate) fn class_of(ext: &str) -> Option<Class> {
         | "m2ts" | "3gp" | "ogv" => Class::Video,
         "pdf" => Class::Pdf,
         "epub" => Class::Book,
+        "html" | "htm" => Class::Web,
         "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "odt" | "ods" | "odp" | "rtf"
         | "rtfd" | "pages" | "numbers" | "key" | "ai" | "eps" | "ps" | "sketch" | "ttf" | "otf"
         | "ttc" | "woff" | "woff2" | "mp3" | "m4a" | "aac" | "flac" | "aiff" | "aif" | "usdz"
@@ -528,6 +581,36 @@ impl Hasher for Fnv {
 
     fn finish(&self) -> u64 {
         self.0
+    }
+}
+
+/// True for a web page this machine can render, so its preview is the page
+/// rather than its source.
+pub fn page(entry: &Entry) -> bool {
+    !entry.is_dir && class_of(&ext_of(entry)) == Some(Class::Web) && web::available()
+}
+
+/// Runs a tool quietly, killing it if it takes longer than [`TIMEOUT`].
+pub(crate) fn run(cmd: &mut Command) -> bool {
+    let Ok(mut child) = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        return false;
+    };
+    let deadline = Instant::now() + TIMEOUT;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(5)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return false;
+            }
+        }
     }
 }
 

@@ -129,6 +129,10 @@ impl Cli {
 }
 
 fn main() -> ExitCode {
+    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    if args.first().is_some_and(|a| a == thumb::web::HELPER) {
+        return thumb::web::helper(&args[1..]);
+    }
     let cli = Cli::parse();
     if cli.update {
         return setup::update();
@@ -233,8 +237,15 @@ fn list(cli: &Cli, term: &Term) -> io::Result<bool> {
     }
     // `lsd data.json` shows the file itself, like Quick Look. Other files,
     // or any file with -g, show their card: a bigger picture with details.
+    // A web page shows as the page when it renders, else as its source.
     if single_file && ctx.term.tty && !(cli.list || cli.one || cli.tree) {
-        if cli.gallery || !view::quicklook::render(&ctx, &files[0], &mut out)? {
+        let page = ctx.term.protocol.has_images()
+            && thumb::page(&files[0])
+            && ctx
+                .thumbs
+                .get(&files[0], view::gallery::px(&ctx), thumb::Mode::Preview)
+                .is_some();
+        if cli.gallery || page || !view::quicklook::render(&ctx, &files[0], &mut out)? {
             view::gallery::render(&ctx, &files, &mut out)?;
         }
         out.flush()?;

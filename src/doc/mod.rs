@@ -1,13 +1,14 @@
 //! Quick Look for text: JSON and source code laid out as styled lines in the
 //! terminal's own palette, so every theme works. Markdown, PDFs and books
-//! open in Leaf instead (see `leaf`); the browser's previews still show
-//! Markdown and tables as colored source.
+//! open in Leaf instead (see `leaf`); the browser's previews show Markdown
+//! laid out (see [`markdown`]) and tables as colored source.
 //!
 //! Lines use ratatui styles so the browser can show them as they are, and the
 //! inline views turn them into escapes with [`push_ansi`].
 
 pub mod code;
 pub mod json;
+pub mod markdown;
 
 use std::path::Path;
 use std::rc::Rc;
@@ -67,6 +68,11 @@ const PREVIEW_BYTES: usize = 256 << 10;
 /// The first `rows` lines of a text file laid out `width` wide, for the
 /// browser's previews. None when it is not text, or empty.
 pub fn preview(entry: &Entry, width: usize, rows: usize) -> Option<Vec<Line>> {
+    if !entry.is_dir && matches!(entry.ext().as_str(), "md" | "markdown" | "mdown" | "mkd") {
+        let (text, _) = read_text(&entry.path, PREVIEW_BYTES)?;
+        let lines = markdown::render(&text, width, rows);
+        return (!lines.is_empty()).then_some(lines);
+    }
     let (kind, text, cut) = read(entry, PREVIEW_BYTES)?;
     let json = match kind {
         Kind::Json if !cut => json::render(&text, width),

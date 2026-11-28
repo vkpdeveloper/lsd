@@ -43,6 +43,13 @@ pub fn syntax_for_path(path: &Path, first_line: &str) -> &'static SyntaxReferenc
         .unwrap_or_else(|| SYNTAXES.find_syntax_plain_text())
 }
 
+/// The grammar for a Markdown fence's language, like `rust` or `ts`.
+pub fn syntax_for_token(lang: &str) -> &'static SyntaxReference {
+    SYNTAXES
+        .find_syntax_by_token(lang)
+        .unwrap_or_else(|| SYNTAXES.find_syntax_plain_text())
+}
+
 /// Colors `src` line by line, as the lines are taken. Tabs become four spaces.
 pub fn highlight<'a>(src: &'a str, syntax: &SyntaxReference) -> impl Iterator<Item = Line> + 'a {
     let mut h = HighlightLines::new(syntax, &THEME);

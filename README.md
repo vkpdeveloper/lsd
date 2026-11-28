@@ -11,7 +11,7 @@ Quick Look and file operations.
 
 - Thumbnails for pictures, videos, PDFs, book covers and app icons, from
   QuickLook on macOS and the freedesktop thumbnailers on Linux. Code and
-  JSON preview as colored text.
+  JSON preview as colored text, and Markdown as formatted text.
 - Web pages preview as the page itself, drawn by WebKit on macOS and by
   Chrome, Chromium, Brave or Edge on Linux (`chrome-headless-shell` is
   fastest). They load only files from the page's own folder and never touch

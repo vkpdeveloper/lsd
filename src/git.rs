@@ -109,6 +109,8 @@ pub struct Status {
     folders: HashMap<PathBuf, Change>,
     /// New path to old path, for renames.
     renames: HashMap<PathBuf, PathBuf>,
+    /// What every git call in this repository needs; see [`guard`].
+    guard: Vec<String>,
 }
 
 const STATUS_TIMEOUT: Duration = Duration::from_secs(5);
@@ -126,8 +128,10 @@ impl Status {
             "--branch",
             "--ignored=matching",
         ];
+        let guard = guard(&repo.root)?;
         let out = run(
             &repo.root,
+            &guard,
             &args.map(OsStr::new),
             STATUS_TIMEOUT,
             STATUS_MAX_BYTES,
@@ -135,7 +139,10 @@ impl Status {
         if out.cut || out.code != 0 {
             return None;
         }
-        Some(Status::parse(&repo.root, &out.bytes))
+        Some(Status {
+            guard,
+            ..Status::parse(&repo.root, &out.bytes)
+        })
     }
 
     pub fn parse(root: &Path, out: &[u8]) -> Status {
@@ -297,6 +304,7 @@ impl Diff {
                     "--no-index",
                     "--no-color",
                     "--no-ext-diff",
+                    "--no-textconv",
                     "--",
                     "/dev/null",
                 ]
@@ -304,7 +312,17 @@ impl Diff {
             );
             args.push(rel.as_os_str());
         } else {
-            args.extend(["HEAD", "--no-color", "--no-ext-diff", "-M", "--"].map(OsStr::new));
+            args.extend(
+                [
+                    "HEAD",
+                    "--no-color",
+                    "--no-ext-diff",
+                    "--no-textconv",
+                    "-M",
+                    "--",
+                ]
+                .map(OsStr::new),
+            );
             // Both names, so git pairs them up as a rename.
             if let Some(from) = status.renames.get(path)
                 && let Ok(from) = from.strip_prefix(&status.root)
@@ -313,7 +331,13 @@ impl Diff {
             }
             args.push(rel.as_os_str());
         }
-        let out = run(&status.root, &args, DIFF_TIMEOUT, DIFF_MAX_BYTES)?;
+        let out = run(
+            &status.root,
+            &status.guard,
+            &args,
+            DIFF_TIMEOUT,
+            DIFF_MAX_BYTES,
+        )?;
         // `--no-index` exits with 1 when the files differ.
         if out.code > 1 {
             return None;
@@ -425,12 +449,54 @@ struct Output {
     cut: bool,
 }
 
+/// `-c` settings that switch off the filters a repository sets up in its own
+/// config. git runs a filter's program on a file before comparing it, so
+/// without these, browsing into a repository someone sent you could run
+/// their program. Filters from your own config, like Git LFS, keep working.
+fn guard(root: &Path) -> Option<Vec<String>> {
+    let args = [
+        "config",
+        "--show-scope",
+        "--name-only",
+        "--get-regexp",
+        r"^filter\..*\.(clean|process)$",
+    ];
+    let out = run(root, &[], &args.map(OsStr::new), STATUS_TIMEOUT, 1 << 20)?;
+    // Exit code 1: no filters anywhere.
+    if out.cut || out.code > 1 {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&out.bytes);
+    let theirs = text
+        .lines()
+        .filter_map(|line| line.split_once('\t'))
+        .filter(|(scope, _)| matches!(*scope, "local" | "worktree"));
+    Some(
+        theirs
+            .flat_map(|(_, key)| ["-c".to_owned(), format!("{key}=")])
+            .collect(),
+    )
+}
+
 /// Runs git in `dir`, reading at most `max` bytes of output and waiting at
 /// most `timeout`. None when git is missing, fails to start or takes too long.
-fn run(dir: &Path, args: &[&OsStr], timeout: Duration, max: usize) -> Option<Output> {
+/// `guard` comes from [`guard`].
+fn run(
+    dir: &Path,
+    guard: &[String],
+    args: &[&OsStr],
+    timeout: Duration,
+    max: usize,
+) -> Option<Output> {
     let mut child = Command::new("git")
         // Never take the index lock: the user's own git commands come first.
         .arg("--no-optional-locks")
+        // Browsing into a folder must not run its programs: a repository's
+        // own config can name one for git to run as its fsmonitor, and
+        // others as filters (see `guard`). Diffs also pass --no-ext-diff and
+        // --no-textconv for the same reason.
+        .args(["-c", "core.fsmonitor=false"])
+        .args(guard)
         .arg("-C")
         .arg(dir)
         .args(args)
@@ -662,5 +728,66 @@ index 1111111..2222222 100644
 
         // Outside any repository, nothing runs at all.
         assert_eq!(Repo::find(Path::new("/")), None);
+    }
+
+    /// A repository someone sent you can name programs in its own config.
+    /// Looking at it must not run them.
+    #[test]
+    fn a_repo_cannot_make_lsd_run_its_programs() {
+        use std::os::unix::fs::PermissionsExt;
+        if Command::new("git").arg("--version").output().is_err() {
+            return;
+        }
+        let tmp = crate::fsops::tests::TempDir::new();
+        let root = std::fs::canonicalize(tmp.path()).unwrap();
+        let ran = root.join(".git/ran");
+        let git = |args: &[&str]| {
+            let ok = Command::new("git")
+                .arg("-C")
+                .arg(&root)
+                .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+                .args(["-c", "commit.gpgsign=false"])
+                .args(args)
+                .output()
+                .unwrap()
+                .status
+                .success();
+            assert!(ok, "git {args:?}");
+        };
+        git(&["init", "-q", "-b", "main"]);
+        std::fs::write(root.join("a.txt"), "one\n").unwrap();
+        let attrs = "*.txt diff=evil filter=evil\n*.md filter=ev.il\n";
+        std::fs::write(root.join(".gitattributes"), attrs).unwrap();
+        std::fs::write(root.join("b.md"), "one\n").unwrap();
+        git(&["add", "-A"]);
+        git(&["commit", "-qm", "init"]);
+        std::fs::write(root.join("a.txt"), "two\n").unwrap();
+        std::fs::write(root.join("b.md"), "two\n").unwrap();
+        std::fs::write(root.join("new.txt"), "new\n").unwrap();
+
+        let script = root.join(".git/evil.sh");
+        let body = format!(
+            "#!/bin/sh\ntouch '{}'\ncat \"$1\" 2>/dev/null\n",
+            ran.display()
+        );
+        std::fs::write(&script, body).unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let script = script.to_str().unwrap();
+        git(&["config", "core.fsmonitor", script]);
+        git(&["config", "diff.evil.textconv", script]);
+        git(&["config", "diff.evil.command", script]);
+        git(&["config", "filter.evil.clean", script]);
+        git(&["config", "filter.ev.il.process", script]);
+
+        let s = Status::load(&Repo::find(&root).unwrap()).unwrap();
+        assert_eq!(s.change(&root.join("b.md")), Some(Change::Modified));
+        assert!(Diff::load(&s, &root.join("a.txt")).is_some());
+        let d = Diff::load(&s, &root.join("b.md")).unwrap();
+        assert_eq!((d.added, d.removed), (1, 1));
+        assert!(Diff::load(&s, &root.join("new.txt")).is_some());
+        assert!(
+            !ran.exists(),
+            "git ran a program from the repository's config"
+        );
     }
 }

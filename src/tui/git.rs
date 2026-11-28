@@ -38,6 +38,7 @@ pub struct DiffKey {
     modified: Option<SystemTime>,
     size: u64,
     change: Change,
+    reveal: bool,
 }
 
 pub struct DiffDoc {
@@ -75,6 +76,8 @@ pub struct Git {
     pub view: DiffView,
     /// The last frame had a preview pane or column to show a diff in.
     pub pane: bool,
+    /// Show the values in environment files.
+    pub reveal: bool,
     /// For `LSD_FRAME_STATS`: when each diff was asked for and whether it
     /// has shown yet, and how long each step took.
     asked: HashMap<DiffKey, (Instant, bool)>,
@@ -100,6 +103,7 @@ impl Git {
             diffs_loading: HashSet::new(),
             view: DiffView::default(),
             pane: false,
+            reveal: false,
             asked: HashMap::new(),
             timings: Vec::new(),
         }
@@ -171,6 +175,7 @@ impl Git {
             modified: e.modified,
             size: e.size,
             change,
+            reveal: self.reveal,
         };
         if let Some(doc) = self.diffs.get(&key) {
             if let Some((at, shown)) = self.asked.get_mut(&key)
@@ -193,10 +198,15 @@ impl Git {
             self.asked.insert(key.clone(), (Instant::now(), false));
             let tx = self.tx.clone();
             std::thread::spawn(move || {
-                let Some(diff) = Diff::load(&status, &key.path).map(Arc::new) else {
+                let Some(mut diff) = Diff::load(&status, &key.path) else {
                     let _ = tx.send(Msg::Diff(key, None));
                     return;
                 };
+                let name = key.path.file_name().unwrap_or_default().to_string_lossy();
+                if !key.reveal && crate::doc::env::is_env(&name) {
+                    diff.hide_values();
+                }
+                let diff = Arc::new(diff);
                 let plain = DiffDoc {
                     diff: diff.clone(),
                     change,

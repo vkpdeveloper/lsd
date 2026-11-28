@@ -292,6 +292,24 @@ impl Diff {
     /// The working tree file against HEAD, so staged and unstaged changes
     /// both show. Untracked files, and files before the first commit, show
     /// as all added.
+    /// Hides the values of an environment file, as its preview does (see
+    /// [`crate::doc::env`]). A hunk header can quote a line too, so only its
+    /// line numbers stay.
+    pub fn hide_values(&mut self) {
+        let mut hider = crate::doc::env::Hider::default();
+        for line in &mut self.lines {
+            match line.kind {
+                LineKind::Hunk => {
+                    if let Some((i, _)) = line.text.match_indices("@@").nth(1) {
+                        line.text.truncate(i + 2);
+                    }
+                }
+                LineKind::Note => {}
+                _ => line.text = hider.line(&line.text),
+            }
+        }
+    }
+
     pub fn load(status: &Status, path: &Path) -> Option<Diff> {
         let change = status.change(path)?;
         let rel = path.strip_prefix(&status.root).ok()?;

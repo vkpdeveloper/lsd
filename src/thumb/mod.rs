@@ -454,6 +454,10 @@ const PACKAGES: &[&str] = &[
 
 /// The rule from the module docs: Some when `entry` gets its own thumbnail.
 fn content(entry: &Entry, src: &Path, ext: &str, px: u32, mode: Mode) -> Option<Class> {
+    // A picture of an environment file would show the values its preview hides.
+    if !entry.is_dir && crate::doc::env::is_env(&entry.name) {
+        return None;
+    }
     let class = class_of(ext);
     if entry.is_dir {
         if cfg!(target_os = "macos") && own_icon(src, &entry.name, ext) {

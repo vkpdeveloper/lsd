@@ -313,6 +313,8 @@ impl Tui {
             }
         }
         let buf = frame.buffer_mut();
+        self.load.reveal = self.app.reveal;
+        self.app.git.reveal = self.app.reveal;
         let mut cx = ui::Ctx {
             th: &self.theme,
             pics: &mut self.pics,

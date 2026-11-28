@@ -7,6 +7,7 @@
 //! inline views turn them into escapes with [`push_ansi`].
 
 pub mod code;
+pub mod env;
 pub mod json;
 pub mod markdown;
 
@@ -53,12 +54,12 @@ pub enum Kind {
 
 /// Which renderer suits `entry`, if any, with the text and whether it was cut
 /// short. Reads at most [`MAX_BYTES`] to tell text from binary. Documents Leaf
-/// reads are left to it.
+/// reads are left to it, and environment files show with their values hidden.
 pub fn load(entry: &Entry) -> Option<(Kind, String, bool)> {
     if crate::leaf::reads(entry) {
         return None;
     }
-    read(entry, MAX_BYTES)
+    read(entry, MAX_BYTES, false)
 }
 
 /// How much of a file a preview reads. JSON cut short here can't be laid out
@@ -66,14 +67,15 @@ pub fn load(entry: &Entry) -> Option<(Kind, String, bool)> {
 const PREVIEW_BYTES: usize = 256 << 10;
 
 /// The first `rows` lines of a text file laid out `width` wide, for the
-/// browser's previews. None when it is not text, or empty.
-pub fn preview(entry: &Entry, width: usize, rows: usize) -> Option<Vec<Line>> {
+/// browser's previews. None when it is not text, or empty. Environment files
+/// show their values only with `reveal`.
+pub fn preview(entry: &Entry, width: usize, rows: usize, reveal: bool) -> Option<Vec<Line>> {
     if !entry.is_dir && matches!(entry.ext().as_str(), "md" | "markdown" | "mdown" | "mkd") {
         let (text, _) = read_text(&entry.path, PREVIEW_BYTES)?;
         let lines = markdown::render(&text, width, rows);
         return (!lines.is_empty()).then_some(lines);
     }
-    let (kind, text, cut) = read(entry, PREVIEW_BYTES)?;
+    let (kind, text, cut) = read(entry, PREVIEW_BYTES, reveal)?;
     let json = match kind {
         Kind::Json if !cut => json::render(&text, width),
         _ => None,
@@ -98,7 +100,7 @@ pub fn preview(entry: &Entry, width: usize, rows: usize) -> Option<Vec<Line>> {
     (!lines.is_empty()).then_some(lines)
 }
 
-fn read(entry: &Entry, max: usize) -> Option<(Kind, String, bool)> {
+fn read(entry: &Entry, max: usize, reveal: bool) -> Option<(Kind, String, bool)> {
     if entry.is_dir {
         return None;
     }
@@ -110,6 +112,9 @@ fn read(entry: &Entry, max: usize) -> Option<(Kind, String, bool)> {
         },
     };
     let (text, cut) = read_text(&entry.path, max)?;
+    if !reveal && env::is_env(&entry.name) {
+        return Some((kind, env::hide(&text), cut));
+    }
     Some((kind, text, cut))
 }
 
@@ -387,7 +392,7 @@ mod tests {
         let preview = |name: &str, bytes: &[u8]| {
             let path = tmp.path().join(name);
             std::fs::write(&path, bytes).unwrap();
-            super::preview(&Entry::from_path(&path).unwrap(), 40, 3).map(|l| text(&l))
+            super::preview(&Entry::from_path(&path).unwrap(), 40, 3, false).map(|l| text(&l))
         };
 
         let pretty = preview("small.json", br#"{"a":[1,2],"b":{"c":"d","e":"f"}}"#).unwrap();

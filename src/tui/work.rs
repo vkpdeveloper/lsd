@@ -117,6 +117,7 @@ struct TextKey {
     size: u64,
     cols: u16,
     rows: u16,
+    reveal: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -214,6 +215,8 @@ pub enum Lookup {
 /// draw; each frame's requests replace the queue, so work for things that
 /// scrolled away or belong to another folder is dropped.
 pub struct Loader {
+    /// Show the values in environment files.
+    pub reveal: bool,
     shared: Shared,
     thumbnailer: Thumbnailer,
     thumbs: HashMap<ThumbKey, Option<Thumb>>,
@@ -246,6 +249,7 @@ impl Loader {
             std::thread::spawn(move || worker(shared, thumbs, tx));
         }
         Loader {
+            reveal: false,
             shared,
             thumbnailer,
             thumbs: HashMap::new(),
@@ -313,12 +317,14 @@ impl Loader {
             size: e.size,
             cols,
             rows,
+            reveal: self.reveal,
         };
         self.texts_used.insert(key.clone());
         if let Some(lines) = self.texts.get(&key) {
             return lines.clone();
         }
-        let lines: Option<Rc<[Line]>> = doc::preview(e, cols as usize, rows as usize).map(Rc::from);
+        let lines: Option<Rc<[Line]>> =
+            doc::preview(e, cols as usize, rows as usize, self.reveal).map(Rc::from);
         self.texts.insert(key, lines.clone());
         lines
     }

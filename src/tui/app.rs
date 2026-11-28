@@ -135,6 +135,8 @@ pub struct App {
     pub view: View,
     pub sort: Sort,
     pub hidden: bool,
+    /// Show the values in `.env` files, which are hidden at first.
+    pub reveal: bool,
     pub filter: String,
     /// The last filter typed, for `n` and `N`.
     pub search: String,
@@ -199,6 +201,7 @@ impl App {
             view: View::Icons,
             sort,
             hidden,
+            reveal: false,
             filter: String::new(),
             search: String::new(),
             find: None,
@@ -629,6 +632,16 @@ impl App {
         self.rebuild();
         let at = keep.and_then(|name| self.position(&name));
         self.select(at.unwrap_or(0));
+    }
+
+    /// Shows or hides the values in `.env` files.
+    pub fn toggle_values(&mut self) {
+        self.reveal = !self.reveal;
+        self.say(if self.reveal {
+            "Showing .env values"
+        } else {
+            "Hiding .env values"
+        });
     }
 
     pub fn toggle_hidden(&mut self) {

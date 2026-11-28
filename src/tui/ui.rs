@@ -510,6 +510,7 @@ const HELP: &[(&str, &str)] = &[
     ("zc  zg", "Columns, gallery"),
     ("zt  zz  zb", "Scroll top, mid, bottom"),
     ("zh  .", "Hidden files"),
+    ("zv", ".env values"),
     ("zp  zs", "Preview pane, sidebar"),
     ("s  S", "Sort by, reverse"),
     ("O", REVEAL),

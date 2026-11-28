@@ -12,6 +12,7 @@ Quick Look and file operations.
 - Thumbnails for pictures, videos, PDFs, book covers and app icons, from
   QuickLook on macOS and the freedesktop thumbnailers on Linux. Code and
   JSON preview as colored text, and Markdown as formatted text.
+- `.env` files preview with their values hidden. Press `zv` to show them.
 - Web pages preview as the page itself, drawn by WebKit on macOS and by
   Chrome, Chromium, Brave or Edge on Linux (`chrome-headless-shell` is
   fastest). They load only files from the page's own folder and never touch
@@ -125,6 +126,7 @@ list inside lsd.
 | `zi` `zl` `zc` `zg` | Icons, list, columns, gallery |
 | `zt` `zz` `zb`, `Ctrl-e` `Ctrl-y` | Scroll |
 | `zh` `.` | Hidden files |
+| `zv` | Values in `.env` files |
 | `zp` `zs` | Preview pane, sidebar |
 | `s` `S` | Sort by, reverse |
 | `O` | Show in Finder |

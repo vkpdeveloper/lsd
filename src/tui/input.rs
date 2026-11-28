@@ -435,6 +435,7 @@ fn command(app: &mut App, key: Key, count: Option<usize>) {
         (None, Char('s'), false) => app.cycle_sort(),
         (None, Char('S'), false) => app.reverse_sort(),
         (Some('z'), Char('p'), _) => app.preview = !app.preview,
+        (Some('z'), Char('v'), _) => app.toggle_values(),
         (Some('z'), Char('s'), _) => app.sidebar = !app.sidebar,
         (Some('z'), Char(c @ ('i' | 'l' | 'c' | 'g')), _) => {
             app.view = match c {
